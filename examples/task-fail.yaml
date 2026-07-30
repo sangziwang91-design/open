@@ -1,0 +1,28 @@
+schema_version: "1.0"
+task_id: "TASK-DEMO-FAIL"
+title: "Demonstrate acceptance failure"
+type: "engineering"
+goal: "Run the fake executor, then fail the acceptance check."
+source:
+  adapter: "cli_manual"
+target:
+  executor_id: "fake"
+  capabilities_required: ["filesystem", "shell"]
+  workspace: "."
+acceptance:
+  - id: "A1"
+    type: "command"
+    command: "python -c \"raise SystemExit(3)\""
+    expected_exit_code: 0
+permissions:
+  file_write: {mode: "deny"}
+  delete: {mode: "deny"}
+  network: {mode: "deny"}
+  shell: {mode: "allow"}
+budget:
+  max_executor_rounds: 1
+  max_retries_per_node: 1
+  timeout_seconds: 60
+stop:
+  success: "All declared checks pass."
+  blocked: "A dependency is unavailable."

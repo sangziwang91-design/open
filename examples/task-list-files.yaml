@@ -1,0 +1,36 @@
+schema_version: "1.0"
+task_id: "TASK-DEMO-SUCCESS"
+title: "List workspace files"
+type: "engineering"
+goal: "List the current workspace without changing it."
+source:
+  adapter: "cli_manual"
+target:
+  executor_id: "fake"
+  capabilities_required: ["filesystem", "shell"]
+  workspace: "."
+scope:
+  include: ["."]
+  exclude: []
+constraints:
+  - "Do not modify files."
+acceptance:
+  - id: "A1"
+    type: "command"
+    command: "python -c \"import os; print(len(os.listdir('.')))\""
+    expected_exit_code: 0
+permissions:
+  file_write: {mode: "deny"}
+  delete: {mode: "deny"}
+  network: {mode: "deny"}
+  shell: {mode: "allow"}
+budget:
+  max_executor_rounds: 1
+  max_retries_per_node: 1
+  timeout_seconds: 60
+stop:
+  success: "The declared acceptance command exits zero."
+  blocked: "A required executable or permission is unavailable."
+  no_progress: "Two rounds produce no new evidence."
+  budget_exhausted: true
+context_refs: []
