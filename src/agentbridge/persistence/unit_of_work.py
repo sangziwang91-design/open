@@ -1,5 +1,6 @@
 import sqlite3
 from types import TracebackType
+from typing import Literal, Self
 
 from .database import Database
 
@@ -9,7 +10,13 @@ class UnitOfWork:
         self.database = database
         self.conn: sqlite3.Connection | None = None
 
-    def __enter__(self) -> "UnitOfWork":
+    @property
+    def connection(self) -> sqlite3.Connection:
+        if self.conn is None:
+            raise RuntimeError("UnitOfWork is not active")
+        return self.conn
+
+    def __enter__(self) -> Self:
         self.conn = self.database.connect()
         self.conn.execute("BEGIN")
         return self
@@ -19,12 +26,12 @@ class UnitOfWork:
         exc_type: type[BaseException] | None,
         exc: BaseException | None,
         tb: TracebackType | None,
-    ) -> bool:
-        assert self.conn is not None
+    ) -> Literal[False]:
+        connection = self.connection
         if exc_type is None:
-            self.conn.commit()
+            connection.commit()
         else:
-            self.conn.rollback()
-        self.conn.close()
+            connection.rollback()
+        connection.close()
         self.conn = None
         return False

@@ -9,7 +9,9 @@ from agentbridge.executors.base import Executor
 class FakeExecutor(Executor):
     executor_id = "fake"
 
-    def __init__(self, exit_code: int = 0, stdout: str = "fake executor completed\n") -> None:
+    def __init__(
+        self, exit_code: int = 0, stdout: str = "fake executor completed\n"
+    ) -> None:
         self.exit_code = exit_code
         self.stdout = stdout
         self._running = False

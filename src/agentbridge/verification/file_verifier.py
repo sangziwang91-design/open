@@ -19,8 +19,24 @@ class FileExistsVerifier(Verifier):
         permissions: Permissions,
     ) -> VerificationResult:
         del artifacts, run_dir, permissions
-        assert item.path is not None
-        target = (workspace / item.path).resolve()
+        if item.path is None:
+            return VerificationResult(
+                check_id=item.id,
+                status=VerificationStatus.FAIL,
+                verifier_id=self.verifier_id,
+                failure_category=FailureCategory.INPUT,
+                detail="File-existence acceptance is missing a path",
+            )
+        workspace_root = workspace.resolve()
+        target = (workspace_root / item.path).resolve()
+        if not target.is_relative_to(workspace_root):
+            return VerificationResult(
+                check_id=item.id,
+                status=VerificationStatus.FAIL,
+                verifier_id=self.verifier_id,
+                failure_category=FailureCategory.PERMISSION,
+                detail=f"path={target}; outside_workspace=true",
+            )
         passed = target.exists()
         return VerificationResult(
             check_id=item.id,

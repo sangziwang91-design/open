@@ -66,7 +66,8 @@ class AttemptStatus(str, Enum):
 
 
 class VerificationStatus(str, Enum):
-    PASS = "PASS"
+    # This is a verification status, not a credential.
+    PASS = "PASS"  # nosec B105
     FAIL = "FAIL"
     UNKNOWN = "UNKNOWN"
 

@@ -1,7 +1,6 @@
 import sqlite3
 from pathlib import Path
 
-
 SCHEMA_SQL = """
 PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS tasks (
@@ -24,6 +23,7 @@ CREATE TABLE IF NOT EXISTS runs (
     executor_id TEXT,
     workspace TEXT,
     attempt_count INTEGER NOT NULL DEFAULT 0,
+    revision INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (task_id, task_version) REFERENCES tasks(task_id, task_version)
 );
 CREATE TABLE IF NOT EXISTS events (
@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS execution_attempts (
 );
 CREATE TABLE IF NOT EXISTS verification_results (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id TEXT NOT NULL,
     run_id TEXT NOT NULL,
     check_id TEXT NOT NULL,
     status TEXT NOT NULL,
@@ -89,8 +90,30 @@ class Database:
         conn = sqlite3.connect(self.path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA busy_timeout = 5000")
         return conn
 
     def initialize(self) -> None:
         with self.connect() as conn:
             conn.executescript(SCHEMA_SQL)
+            columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(verification_results)")
+            }
+            if "batch_id" not in columns:
+                conn.execute(
+                    "ALTER TABLE verification_results ADD COLUMN batch_id TEXT"
+                )
+                conn.execute(
+                    """UPDATE verification_results
+                       SET batch_id='legacy-' || run_id || '-' || created_at
+                       WHERE batch_id IS NULL"""
+                )
+            run_columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(runs)")
+            }
+            if "revision" not in run_columns:
+                conn.execute(
+                    "ALTER TABLE runs ADD COLUMN revision INTEGER NOT NULL DEFAULT 0"
+                )
+            conn.execute("PRAGMA journal_mode = WAL")

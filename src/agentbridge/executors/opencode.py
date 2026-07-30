@@ -2,9 +2,11 @@ import hashlib
 import shlex
 import shutil
 import signal
-import subprocess
+
+# Subprocess use is the bounded adapter's declared purpose.
+import subprocess  # nosec B404
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 from agentbridge.domain.task import TaskEnvelope
 from agentbridge.errors import ExecutorUnavailableError
@@ -13,11 +15,12 @@ from agentbridge.executors.base import Executor
 
 class OpenCodeExecutor(Executor):
     executor_id = "opencode"
+    required_permissions = ("file_write", "shell")
 
     def __init__(self) -> None:
         self.process: subprocess.Popen[str] | None = None
-        self.stdout_file = None
-        self.stderr_file = None
+        self.stdout_file: TextIO | None = None
+        self.stderr_file: TextIO | None = None
         self.context: dict[str, Any] | None = None
 
     def prepare(self, envelope: TaskEnvelope, run_dir: Path) -> dict[str, Any]:
@@ -51,7 +54,8 @@ class OpenCodeExecutor(Executor):
         run_dir = Path(prepared_context["run_dir"])
         self.stdout_file = (run_dir / "stdout.log").open("w", encoding="utf-8")
         self.stderr_file = (run_dir / "stderr.log").open("w", encoding="utf-8")
-        self.process = subprocess.Popen(
+        # argv is explicit and the executable was resolved with shutil.which().
+        self.process = subprocess.Popen(  # nosec B603
             prepared_context["command"],
             cwd=prepared_context["workspace"],
             stdout=self.stdout_file,

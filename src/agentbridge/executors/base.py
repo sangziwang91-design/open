@@ -7,6 +7,7 @@ from agentbridge.domain.task import TaskEnvelope
 
 class Executor(ABC):
     executor_id: str
+    required_permissions: tuple[str, ...] = ()
 
     @abstractmethod
     def prepare(self, envelope: TaskEnvelope, run_dir: Path) -> dict[str, Any]: ...

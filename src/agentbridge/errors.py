@@ -12,3 +12,7 @@ class ExecutorUnavailableError(AgentBridgeError):
 
 class TaskNotFoundError(AgentBridgeError):
     """Raised when a task or run cannot be found."""
+
+
+class ConcurrentUpdateError(AgentBridgeError):
+    """Raised when a stale runtime tries to overwrite a newer revision."""

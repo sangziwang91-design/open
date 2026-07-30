@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -7,7 +7,7 @@ from .enums import TaskState
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class TaskRuntime(BaseModel):
@@ -21,3 +21,4 @@ class TaskRuntime(BaseModel):
     executor_id: str | None = None
     workspace: str | None = None
     attempt_count: int = 0
+    revision: int = Field(default=0, ge=0)

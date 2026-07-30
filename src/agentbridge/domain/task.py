@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Annotated, Literal
 from uuid import uuid4
 
@@ -8,27 +8,32 @@ from .enums import ExecutorCapability, PermissionMode
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Source(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
     adapter: str
     conversation_ref: str | None = Field(
-        default=None, validation_alias=AliasChoices("conversation_ref", "conversationref")
+        default=None,
+        validation_alias=AliasChoices("conversation_ref", "conversationref"),
     )
     created_at: datetime = Field(
-        default_factory=utc_now, validation_alias=AliasChoices("created_at", "createdat")
+        default_factory=utc_now,
+        validation_alias=AliasChoices("created_at", "createdat"),
     )
 
 
 class Target(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
-    executor_id: str = Field(
+    executor_id: Literal["fake", "opencode"] = Field(
         default="opencode", validation_alias=AliasChoices("executor_id", "executorid")
     )
     capabilities_required: list[ExecutorCapability] = Field(
-        default_factory=lambda: [ExecutorCapability.FILESYSTEM, ExecutorCapability.SHELL],
+        default_factory=lambda: [
+            ExecutorCapability.FILESYSTEM,
+            ExecutorCapability.SHELL,
+        ],
         validation_alias=AliasChoices("capabilities_required", "capabilitiesrequired"),
     )
     workspace: str
@@ -43,11 +48,16 @@ class Scope(BaseModel):
 
 class AcceptanceItem(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
-    id: str
-    type: Literal["command", "gitdiff", "fileexists", "schema", "humanreview"]
+    id: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]*$",
+    )
+    type: Literal["command", "gitdiff", "fileexists"]
     command: str | None = None
     expected_exit_code: int = Field(
-        default=0, validation_alias=AliasChoices("expected_exit_code", "expectedexitcode")
+        default=0,
+        validation_alias=AliasChoices("expected_exit_code", "expectedexitcode"),
     )
     rule: str | None = None
     path: str | None = None
@@ -58,6 +68,8 @@ class AcceptanceItem(BaseModel):
             raise ValueError("command acceptance requires command")
         if self.type == "fileexists" and not self.path:
             raise ValueError("fileexists acceptance requires path")
+        if self.type == "gitdiff" and self.rule not in {None, "non_empty", "empty"}:
+            raise ValueError("gitdiff rule must be 'non_empty' or 'empty'")
         return self
 
 
@@ -75,7 +87,9 @@ class Permissions(BaseModel):
         default_factory=lambda: PermissionRule(mode=PermissionMode.ALLOW),
         validation_alias=AliasChoices("file_write", "filewrite"),
     )
-    delete: PermissionRule = Field(default_factory=lambda: PermissionRule(mode=PermissionMode.ASK))
+    delete: PermissionRule = Field(
+        default_factory=lambda: PermissionRule(mode=PermissionMode.ASK)
+    )
     network: PermissionRule = Field(default_factory=PermissionRule)
     shell: PermissionRule = Field(
         default_factory=lambda: PermissionRule(mode=PermissionMode.ALLOW)
@@ -88,13 +102,19 @@ class Permissions(BaseModel):
 class Budget(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
     max_executor_rounds: int = Field(
-        default=3, ge=1, validation_alias=AliasChoices("max_executor_rounds", "maxexecutorrounds")
+        default=3,
+        ge=1,
+        validation_alias=AliasChoices("max_executor_rounds", "maxexecutorrounds"),
     )
     max_retries_per_node: int = Field(
-        default=2, ge=0, validation_alias=AliasChoices("max_retries_per_node", "maxretriespernode")
+        default=2,
+        ge=0,
+        validation_alias=AliasChoices("max_retries_per_node", "maxretriespernode"),
     )
     timeout_seconds: int = Field(
-        default=1800, ge=1, validation_alias=AliasChoices("timeout_seconds", "timeoutseconds")
+        default=1800,
+        ge=1,
+        validation_alias=AliasChoices("timeout_seconds", "timeoutseconds"),
     )
 
 
@@ -107,7 +127,8 @@ class StopConditions(BaseModel):
         validation_alias=AliasChoices("no_progress", "noprogress"),
     )
     budget_exhausted: bool = Field(
-        default=True, validation_alias=AliasChoices("budget_exhausted", "budgetexhausted")
+        default=True,
+        validation_alias=AliasChoices("budget_exhausted", "budgetexhausted"),
     )
 
 
@@ -139,5 +160,13 @@ class TaskEnvelope(BaseModel):
     budget: Budget = Field(default_factory=Budget)
     stop: StopConditions
     context_refs: list[ContextRef] = Field(
-        default_factory=list, validation_alias=AliasChoices("context_refs", "contextrefs")
+        default_factory=list,
+        validation_alias=AliasChoices("context_refs", "contextrefs"),
     )
+
+    @model_validator(mode="after")
+    def validate_acceptance_ids(self) -> "TaskEnvelope":
+        ids = [item.id for item in self.acceptance]
+        if len(ids) != len(set(ids)):
+            raise ValueError("acceptance ids must be unique")
+        return self

@@ -1,6 +1,8 @@
 import platform
 import shutil
 import sqlite3
+from datetime import UTC, datetime
+from enum import Enum
 from pathlib import Path
 from typing import Annotated
 
@@ -9,7 +11,7 @@ import yaml
 
 from agentbridge import __version__
 from agentbridge.domain.capability import CapabilitySnapshot
-from agentbridge.domain.enums import TaskState
+from agentbridge.domain.enums import AttemptStatus, TaskState
 from agentbridge.domain.runtime import TaskRuntime
 from agentbridge.domain.task import TaskEnvelope
 from agentbridge.domain.verification import ClaimReport
@@ -25,7 +27,16 @@ from agentbridge.services.feedback_service import FeedbackService
 from agentbridge.services.state_manager import StateManager
 from agentbridge.services.verification_service import VerificationService
 
-app = typer.Typer(no_args_is_help=True, invoke_without_command=True, help="Evidence-gated control plane for personal agents.")
+app = typer.Typer(
+    no_args_is_help=True,
+    invoke_without_command=True,
+    help="Evidence-gated control plane for personal agents.",
+)
+
+
+class ExecutorName(str, Enum):
+    FAKE = "fake"
+    OPENCODE = "opencode"
 
 
 def _database(path: Path) -> Database:
@@ -77,8 +88,7 @@ def doctor(
         }
     )
     with UnitOfWork(database) as uow:
-        assert uow.conn is not None
-        AgentRepository(uow.conn).save_capability_snapshot(snapshot)
+        AgentRepository(uow.connection).save_capability_snapshot(snapshot)
     typer.echo(yaml.safe_dump(snapshot.model_dump(mode="json"), sort_keys=False))
 
 
@@ -98,11 +108,12 @@ def submit(
     )
     database = _database(db)
     with UnitOfWork(database) as uow:
-        assert uow.conn is not None
-        repo = AgentRepository(uow.conn)
+        repo = AgentRepository(uow.connection)
         repo.save_task(envelope, runtime)
         manager = StateManager(repo)
-        manager.transition(runtime, TaskState.VALIDATING, "ValidationStarted", "schema_validation")
+        manager.transition(
+            runtime, TaskState.VALIDATING, "ValidationStarted", "schema_validation"
+        )
         manager.transition(runtime, TaskState.READY, "TaskReady", "task_envelope_valid")
     typer.echo(f"Task ID: {runtime.task_id}")
     typer.echo(f"Run ID: {runtime.run_id}")
@@ -129,13 +140,18 @@ def status(
     typer.echo(f"Run ID: {runtime.run_id}")
     typer.echo(f"State: {runtime.state.value}")
     for event in events:
-        typer.echo(f"{event.sequence_id}: {event.event_type} ({event.payload['to_state']})")
+        typer.echo(
+            f"{event.sequence_id}: {event.event_type} ({event.payload['to_state']})"
+        )
 
 
 @app.command()
 def run(
     task_id: str,
-    executor: Annotated[str, typer.Option("--executor", help="fake or opencode")] = "opencode",
+    executor: Annotated[
+        ExecutorName | None,
+        typer.Option("--executor", help="Override the task's declared executor."),
+    ] = None,
     db: Annotated[Path, typer.Option("--db", help="SQLite database path.")] = Path(
         "agentbridge.db"
     ),
@@ -143,10 +159,20 @@ def run(
 ) -> None:
     database = _database(db)
     envelope, runtime = _load(database, task_id)
-    if runtime.state != TaskState.READY:
-        typer.echo(f"Run requires READY state, found {runtime.state.value}", err=True)
+    if runtime.state not in {TaskState.READY, TaskState.REPAIR_READY}:
+        typer.echo(
+            f"Run requires READY or REPAIR_READY state, found {runtime.state.value}",
+            err=True,
+        )
         raise typer.Exit(2)
-    selected = FakeExecutor() if executor == "fake" else OpenCodeExecutor()
+    executor_name = (
+        executor.value if executor is not None else envelope.target.executor_id
+    )
+    selected = (
+        FakeExecutor()
+        if executor_name == ExecutorName.FAKE.value
+        else OpenCodeExecutor()
+    )
     ok = ExecutionService(database, runs_dir).run(runtime, envelope, selected)
     typer.echo(f"State: {runtime.state.value}")
     if not ok:
@@ -165,10 +191,13 @@ def verify(
     envelope, runtime = _load(database, task_id)
     if runtime.state != TaskState.WAITING_VERIFICATION:
         typer.echo(
-            f"Verify requires WAITING_VERIFICATION state, found {runtime.state.value}", err=True
+            f"Verify requires WAITING_VERIFICATION state, found {runtime.state.value}",
+            err=True,
         )
         raise typer.Exit(2)
-    passed, results, report = VerificationService(database, runs_dir).verify(runtime, envelope)
+    passed, results, report = VerificationService(database, runs_dir).verify(
+        runtime, envelope
+    )
     typer.echo(f"State: {runtime.state.value}")
     typer.echo(f"Claim level: {report.max_claim_level.value}")
     for result in results:
@@ -180,7 +209,9 @@ def verify(
 @app.command()
 def feedback(
     task_id: str,
-    format: Annotated[str, typer.Option("--format", help="markdown or yaml")] = "markdown",
+    format: Annotated[
+        str, typer.Option("--format", help="markdown or yaml")
+    ] = "markdown",
     db: Annotated[Path, typer.Option("--db", help="SQLite database path.")] = Path(
         "agentbridge.db"
     ),
@@ -216,15 +247,51 @@ def recover(
     db: Annotated[Path, typer.Option("--db", help="SQLite database path.")] = Path(
         "agentbridge.db"
     ),
+    force_inflight: Annotated[
+        bool,
+        typer.Option(
+            "--force-inflight",
+            help="Operator-confirmed recovery of an interrupted in-flight state.",
+        ),
+    ] = False,
 ) -> None:
     database = _database(db)
     _, runtime = _load(database, task_id)
-    if runtime.state != TaskState.RECOVERY_REQUIRED:
-        typer.echo(f"Recover requires RECOVERY_REQUIRED, found {runtime.state.value}", err=True)
+    inflight_states = {
+        TaskState.BASELINING,
+        TaskState.DISPATCHING,
+        TaskState.EXECUTING,
+        TaskState.COLLECTING,
+        TaskState.VERIFYING,
+        TaskState.INTERRUPTED,
+        TaskState.TIMED_OUT,
+        TaskState.EXECUTOR_ERROR,
+    }
+    if runtime.state != TaskState.RECOVERY_REQUIRED and (
+        not force_inflight or runtime.state not in inflight_states
+    ):
+        typer.echo(
+            "Recover requires RECOVERY_REQUIRED; use --force-inflight only after "
+            f"confirming an interrupted worker (found {runtime.state.value})",
+            err=True,
+        )
         raise typer.Exit(2)
     with UnitOfWork(database) as uow:
-        assert uow.conn is not None
-        StateManager(AgentRepository(uow.conn)).transition(
+        repo = AgentRepository(uow.connection)
+        manager = StateManager(repo)
+        if runtime.state != TaskState.RECOVERY_REQUIRED:
+            attempt = repo.latest_attempt(runtime.run_id)
+            if attempt is not None and attempt.status == AttemptStatus.RUNNING:
+                attempt.status = AttemptStatus.FAILED
+                attempt.finished_at = datetime.now(UTC)
+                attempt.signal = "OPERATOR_RECOVERY"
+                repo.save_attempt(attempt)
+            manager.force_recovery(
+                runtime,
+                "operator_confirmed_interrupted_inflight_state",
+                actor="operator",
+            )
+        manager.transition(
             runtime, TaskState.READY, "RecoveryAccepted", "operator_retry"
         )
     typer.echo(f"State: {runtime.state.value}")

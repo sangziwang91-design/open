@@ -1,10 +1,9 @@
-from pathlib import Path
 import re
+from pathlib import Path
 
 from typer.testing import CliRunner
 
 from agentbridge.cli import app
-
 
 runner = CliRunner()
 
@@ -32,7 +31,16 @@ stop: {success: pass, blocked: blocked}
     task_id = re.search(r"Task ID: (\S+)", result.output).group(1)
     result = runner.invoke(
         app,
-        ["run", task_id, "--executor", "fake", "--db", str(db), "--runs-dir", str(runs)],
+        [
+            "run",
+            task_id,
+            "--executor",
+            "fake",
+            "--db",
+            str(db),
+            "--runs-dir",
+            str(runs),
+        ],
     )
     assert result.exit_code == 0, result.output
     result = runner.invoke(
@@ -47,4 +55,4 @@ stop: {success: pass, blocked: blocked}
 def test_version_flag() -> None:
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.0"
+    assert result.output.strip() == "0.2.0"

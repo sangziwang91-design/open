@@ -1,22 +1,28 @@
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from uuid import uuid4
 
 import yaml
 
 from agentbridge.domain.artifact import Artifact
 from agentbridge.domain.capability import CapabilitySnapshot
-from agentbridge.domain.enums import AttemptStatus, FailureCategory, TaskState, VerificationStatus
+from agentbridge.domain.enums import (
+    AttemptStatus,
+    FailureCategory,
+    TaskState,
+    VerificationStatus,
+)
 from agentbridge.domain.event import AgentEvent
 from agentbridge.domain.execution_attempt import ExecutionAttempt
 from agentbridge.domain.runtime import TaskRuntime
 from agentbridge.domain.task import TaskEnvelope
 from agentbridge.domain.verification import VerificationResult
-from agentbridge.errors import TaskNotFoundError
+from agentbridge.errors import ConcurrentUpdateError, TaskNotFoundError
 
 
 def utc_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class AgentRepository:
@@ -39,8 +45,8 @@ class AgentRepository:
         )
         self.conn.execute(
             """INSERT INTO runs(run_id, task_id, task_version, state, created_at, updated_at,
-               latest_event_id, executor_id, workspace, attempt_count)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               latest_event_id, executor_id, workspace, attempt_count, revision)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 runtime.run_id,
                 runtime.task_id,
@@ -52,10 +58,13 @@ class AgentRepository:
                 runtime.executor_id,
                 runtime.workspace,
                 runtime.attempt_count,
+                runtime.revision,
             ),
         )
 
-    def get_envelope(self, task_id: str, task_version: int | None = None) -> TaskEnvelope:
+    def get_envelope(
+        self, task_id: str, task_version: int | None = None
+    ) -> TaskEnvelope:
         if task_version is None:
             row = self.conn.execute(
                 "SELECT envelope_yaml FROM tasks WHERE task_id=? ORDER BY task_version DESC LIMIT 1",
@@ -72,14 +81,17 @@ class AgentRepository:
 
     def get_runtime(self, task_id: str) -> TaskRuntime:
         row = self.conn.execute(
-            "SELECT * FROM runs WHERE task_id=? ORDER BY created_at DESC LIMIT 1", (task_id,)
+            "SELECT * FROM runs WHERE task_id=? ORDER BY created_at DESC LIMIT 1",
+            (task_id,),
         ).fetchone()
         if row is None:
             raise TaskNotFoundError(f"Task not found: {task_id}")
         return self._runtime_from_row(row)
 
     def get_runtime_by_run(self, run_id: str) -> TaskRuntime:
-        row = self.conn.execute("SELECT * FROM runs WHERE run_id=?", (run_id,)).fetchone()
+        row = self.conn.execute(
+            "SELECT * FROM runs WHERE run_id=?", (run_id,)
+        ).fetchone()
         if row is None:
             raise TaskNotFoundError(f"Run not found: {run_id}")
         return self._runtime_from_row(row)
@@ -97,12 +109,14 @@ class AgentRepository:
             executor_id=row["executor_id"],
             workspace=row["workspace"],
             attempt_count=row["attempt_count"],
+            revision=row["revision"],
         )
 
     def update_runtime(self, runtime: TaskRuntime) -> None:
-        self.conn.execute(
+        cur = self.conn.execute(
             """UPDATE runs SET state=?, updated_at=?, latest_event_id=?, executor_id=?,
-               workspace=?, attempt_count=? WHERE run_id=?""",
+               workspace=?, attempt_count=?, revision=revision + 1
+               WHERE run_id=? AND revision=?""",
             (
                 runtime.state.value,
                 runtime.updated_at.isoformat(),
@@ -111,8 +125,19 @@ class AgentRepository:
                 runtime.workspace,
                 runtime.attempt_count,
                 runtime.run_id,
+                runtime.revision,
             ),
         )
+        if cur.rowcount != 1:
+            exists = self.conn.execute(
+                "SELECT 1 FROM runs WHERE run_id=?", (runtime.run_id,)
+            ).fetchone()
+            if exists is None:
+                raise TaskNotFoundError(f"Run not found: {runtime.run_id}")
+            raise ConcurrentUpdateError(
+                f"Stale runtime revision for {runtime.run_id}: {runtime.revision}"
+            )
+        runtime.revision += 1
 
     def append_event(self, event: AgentEvent) -> AgentEvent:
         cur = self.conn.execute(
@@ -127,6 +152,8 @@ class AgentRepository:
                 json.dumps(event.payload, ensure_ascii=False, sort_keys=True),
             ),
         )
+        if cur.lastrowid is None:
+            raise RuntimeError("SQLite did not return an event sequence id")
         return event.model_copy(update={"sequence_id": int(cur.lastrowid)})
 
     def list_events(self, task_id: str) -> list[AgentEvent]:
@@ -200,14 +227,18 @@ class AgentRepository:
         data["status"] = AttemptStatus(data["status"])
         return ExecutionAttempt(**data)
 
-    def save_verification_results(self, run_id: str, results: list[VerificationResult]) -> None:
+    def save_verification_results(
+        self, run_id: str, results: list[VerificationResult]
+    ) -> None:
         batch_created_at = utc_iso()
+        batch_id = f"VER-{uuid4().hex.upper()}"
         self.conn.executemany(
-            """INSERT INTO verification_results(run_id, check_id, status, verifier_id,
+            """INSERT INTO verification_results(batch_id, run_id, check_id, status, verifier_id,
                verifier_version, failure_category, artifact_id, detail, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 (
+                    batch_id,
                     run_id,
                     r.check_id,
                     r.status.value,
@@ -223,19 +254,28 @@ class AgentRepository:
         )
 
     def latest_verification_results(self, run_id: str) -> list[VerificationResult]:
+        batch = self.conn.execute(
+            """SELECT batch_id FROM verification_results
+               WHERE run_id=? ORDER BY id DESC LIMIT 1""",
+            (run_id,),
+        ).fetchone()
+        if batch is None:
+            return []
         rows = self.conn.execute(
-            """SELECT * FROM verification_results WHERE run_id=? AND created_at=(
-               SELECT MAX(created_at) FROM verification_results WHERE run_id=?) ORDER BY id""",
-            (run_id, run_id),
+            """SELECT * FROM verification_results
+               WHERE run_id=? AND batch_id=? ORDER BY id""",
+            (run_id, batch["batch_id"]),
         ).fetchall()
         results: list[VerificationResult] = []
         for row in rows:
             data = dict(row)
             data["status"] = VerificationStatus(data["status"])
             data["failure_category"] = (
-                FailureCategory(data["failure_category"]) if data["failure_category"] else None
+                FailureCategory(data["failure_category"])
+                if data["failure_category"]
+                else None
             )
-            for key in ("id", "run_id", "created_at"):
+            for key in ("id", "batch_id", "run_id", "created_at"):
                 data.pop(key, None)
             results.append(VerificationResult(**data))
         return results
