@@ -25,7 +25,7 @@ Generated: 2026-08-01
 11. Core long run — PASS: 3,000 cycles, 3,324 attempts, 16,620 artifacts, 120 service restarts, 167 injected executor failures, and 157 acceptance-repair cycles.
 12. Concurrent persistence probe — PASS: 500 tasks across 12 workers; 1,000 events, SQLite integrity `ok`, zero foreign-key errors.
 13. Core long-run invariants — PASS: zero unfinished attempts, artifact hash failures, latest-verification failures, and foreign-key errors.
-14. GitHub Actions CI definition — CONFIGURED for Python 3.12 and 3.13 with pytest, Ruff, mypy, Bandit, and package build. Remote execution is not marked PASS until the post-publish workflow completes.
+14. GitHub Actions CI — PASS on release-code commit `8ad94f8ba9c066751417e33a2ed1eb3a3321ec19`, run `30694480642`: Python 3.12 and 3.13 jobs both completed successfully; the Python 3.12 distribution build also passed.
 
 The bounded results are stored in:
 

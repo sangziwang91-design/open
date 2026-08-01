@@ -15,6 +15,14 @@
     "bandit": "PASS",
     "compileall": "PASS"
   },
+  "github_actions": {
+    "status": "PASS",
+    "code_commit": "8ad94f8ba9c066751417e33a2ed1eb3a3321ec19",
+    "run_id": 30694480642,
+    "run_url": "https://github.com/sangziwang91-design/open/actions/runs/30694480642",
+    "python_3_12": "PASS",
+    "python_3_13": "PASS"
+  },
   "distributions": {
     "wheel": {
       "filename": "sz_agentbridge-0.3.0-py3-none-any.whl",
