@@ -49,6 +49,7 @@ class ExecutorCapability(str, Enum):
 class ArtifactType(str, Enum):
     BASELINE = "baseline"
     COMMAND = "command"
+    POLICY = "policy"
     STDOUT = "stdout"
     STDERR = "stderr"
     DIFF = "diff"

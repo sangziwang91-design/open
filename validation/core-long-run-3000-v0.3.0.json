@@ -1,0 +1,25 @@
+{
+  "artifact_integrity_failures": 0,
+  "artifacts": 16620,
+  "attempts": 3324,
+  "concurrency": {
+    "events": 1000,
+    "foreign_key_errors": 0,
+    "integrity": "ok",
+    "tasks": 500,
+    "workers": 12
+  },
+  "cycles": 3000,
+  "cycles_per_second": 17.359,
+  "database_bytes": 18833408,
+  "duration_seconds": 172.819,
+  "events": 29268,
+  "fault_cycles": 167,
+  "foreign_key_errors": 0,
+  "latest_verification_failures": 0,
+  "repair_cycles": 157,
+  "restarts": 120,
+  "sqlite_integrity": "ok",
+  "status": "PASS",
+  "unfinished_attempts": 0
+}

@@ -1,4 +1,7 @@
+from pathlib import Path
+
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from agentbridge.domain.task import TaskEnvelope
@@ -54,3 +57,10 @@ def test_unknown_executor_is_rejected() -> None:
         TaskEnvelope.model_validate(
             {**BASE, "target": {"executorid": "typo", "workspace": "."}}
         )
+
+
+@pytest.mark.parametrize("name", ["task-success.yaml", "task-opencode.yaml"])
+def test_shipped_examples_are_valid(name: str) -> None:
+    path = Path(__file__).resolve().parents[1] / "examples" / name
+    task = TaskEnvelope.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
+    assert task.task_id.startswith("TASK-")

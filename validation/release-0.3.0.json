@@ -1,0 +1,52 @@
+{
+  "package": "sz-agentbridge",
+  "version": "0.3.0",
+  "python": "3.12.13",
+  "quality_gates": {
+    "pytest": {
+      "status": "PASS",
+      "tests": 58
+    },
+    "ruff": "PASS",
+    "mypy": {
+      "status": "PASS",
+      "source_files": 39
+    },
+    "bandit": "PASS",
+    "compileall": "PASS"
+  },
+  "distributions": {
+    "wheel": {
+      "filename": "sz_agentbridge-0.3.0-py3-none-any.whl",
+      "sha256": "c16358246c2084d07f06fa855a664a8b76b85221097ee0f75de67db990d98570"
+    },
+    "sdist": {
+      "filename": "sz_agentbridge-0.3.0.tar.gz",
+      "sha256": "09022939117adab77f540f1b32cca79531695155fc0be1d9506ce60e60065b7e"
+    }
+  },
+  "fresh_dependency_resolving_install": {
+    "status": "PASS",
+    "pip_check": "PASS",
+    "reported_version": "0.3.0"
+  },
+  "installed_cli": {
+    "fake_executor_e2e": "COMPLETED",
+    "controlled_opencode_subprocess_e2e": "COMPLETED",
+    "controlled_opencode_artifacts": [
+      "baseline",
+      "command",
+      "policy",
+      "stdout",
+      "stderr",
+      "diff"
+    ],
+    "sqlite_integrity": "ok",
+    "foreign_key_errors": 0
+  },
+  "live_opencode": {
+    "installed_package": "opencode-linux-x64@1.18.10",
+    "status": "BLOCKED_HOST",
+    "reason": "The validation host denied OpenCode's required write to /root/.local with EROFS before provider execution. No live-provider success is claimed."
+  }
+}

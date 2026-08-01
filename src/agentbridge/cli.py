@@ -1,5 +1,4 @@
 import platform
-import shutil
 import sqlite3
 from datetime import UTC, datetime
 from enum import Enum
@@ -17,7 +16,7 @@ from agentbridge.domain.task import TaskEnvelope
 from agentbridge.domain.verification import ClaimReport
 from agentbridge.errors import TaskNotFoundError
 from agentbridge.executors.fake import FakeExecutor
-from agentbridge.executors.opencode import OpenCodeExecutor
+from agentbridge.executors.opencode import OpenCodeExecutor, probe_opencode
 from agentbridge.feedback.renderer import to_markdown, to_yaml
 from agentbridge.persistence.database import Database
 from agentbridge.persistence.repository import AgentRepository
@@ -78,18 +77,44 @@ def doctor(
     db: Annotated[Path, typer.Option("--db", help="SQLite database path.")] = Path(
         "agentbridge.db"
     ),
+    opencode_executable: Annotated[
+        str,
+        typer.Option(
+            "--opencode-executable",
+            help="OpenCode executable name or absolute path to probe.",
+        ),
+    ] = "opencode",
+    require_opencode: Annotated[
+        bool,
+        typer.Option(
+            "--require-opencode",
+            help="Exit nonzero unless the required OpenCode CLI contract is ready.",
+        ),
+    ] = False,
 ) -> None:
     database = _database(db)
+    try:
+        opencode: dict[str, str] = {
+            "status": "READY",
+            **probe_opencode(opencode_executable),
+        }
+    except Exception as exc:  # noqa: BLE001 - doctor must report, not crash
+        opencode = {
+            "status": "UNAVAILABLE",
+            "reason": f"{type(exc).__name__}: {str(exc)[:500]}",
+        }
     snapshot = CapabilitySnapshot(
         environment={
             "python": platform.python_version(),
             "sqlite": sqlite3.sqlite_version,
-            "opencode": shutil.which("opencode") or "NOT_FOUND",
+            "opencode": opencode,
         }
     )
     with UnitOfWork(database) as uow:
         AgentRepository(uow.connection).save_capability_snapshot(snapshot)
     typer.echo(yaml.safe_dump(snapshot.model_dump(mode="json"), sort_keys=False))
+    if require_opencode and opencode["status"] != "READY":
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -156,6 +181,13 @@ def run(
         "agentbridge.db"
     ),
     runs_dir: Annotated[Path, typer.Option("--runs-dir")] = Path("data/runs"),
+    opencode_executable: Annotated[
+        str,
+        typer.Option(
+            "--opencode-executable",
+            help="OpenCode executable name or absolute path.",
+        ),
+    ] = "opencode",
 ) -> None:
     database = _database(db)
     envelope, runtime = _load(database, task_id)
@@ -171,11 +203,15 @@ def run(
     selected = (
         FakeExecutor()
         if executor_name == ExecutorName.FAKE.value
-        else OpenCodeExecutor()
+        else OpenCodeExecutor(opencode_executable)
     )
     ok = ExecutionService(database, runs_dir).run(runtime, envelope, selected)
     typer.echo(f"State: {runtime.state.value}")
     if not ok:
+        with database.connect() as conn:
+            events = AgentRepository(conn).list_events(task_id)
+        if events:
+            typer.echo(f"Reason: {events[-1].payload.get('reason', 'unknown')}", err=True)
         raise typer.Exit(1)
 
 
@@ -281,7 +317,10 @@ def recover(
         manager = StateManager(repo)
         if runtime.state != TaskState.RECOVERY_REQUIRED:
             attempt = repo.latest_attempt(runtime.run_id)
-            if attempt is not None and attempt.status == AttemptStatus.RUNNING:
+            if attempt is not None and attempt.status in {
+                AttemptStatus.CREATED,
+                AttemptStatus.RUNNING,
+            }:
                 attempt.status = AttemptStatus.FAILED
                 attempt.finished_at = datetime.now(UTC)
                 attempt.signal = "OPERATOR_RECOVERY"

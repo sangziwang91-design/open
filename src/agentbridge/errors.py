@@ -10,6 +10,10 @@ class ExecutorUnavailableError(AgentBridgeError):
     """Raised when an executor binary is unavailable."""
 
 
+class ExecutorPolicyError(AgentBridgeError):
+    """Raised when an executor cannot faithfully enforce the task policy."""
+
+
 class TaskNotFoundError(AgentBridgeError):
     """Raised when a task or run cannot be found."""
 

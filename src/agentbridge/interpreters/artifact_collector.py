@@ -109,6 +109,7 @@ def collect_execution_artifacts(
     artifacts: list[Artifact] = []
     mapping = {
         "command_path": ArtifactType.COMMAND,
+        "policy_path": ArtifactType.POLICY,
         "stdout_path": ArtifactType.STDOUT,
         "stderr_path": ArtifactType.STDERR,
     }

@@ -73,3 +73,41 @@ def test_force_inflight_recovery_finalizes_orphaned_attempt(tmp_path: Path) -> N
         "ForcedRecovery",
         "RecoveryAccepted",
     ]
+
+
+def test_force_recovery_finalizes_reserved_attempt(tmp_path: Path) -> None:
+    path = tmp_path / "reserved.db"
+    from agentbridge.persistence.database import Database
+
+    database = Database(path)
+    database.initialize()
+    task = sample_task()
+    runtime = TaskRuntime(task_id=task.task_id)
+    attempt = ExecutionAttempt(
+        run_id=runtime.run_id,
+        task_id=runtime.task_id,
+        executor_id="fake",
+        status=AttemptStatus.CREATED,
+    )
+    with UnitOfWork(database) as uow:
+        repo = AgentRepository(uow.connection)
+        repo.save_task(task, runtime)
+        manager = StateManager(repo)
+        manager.transition(runtime, TaskState.VALIDATING, "ValidationStarted", "test")
+        manager.transition(runtime, TaskState.READY, "TaskReady", "test")
+        manager.transition(runtime, TaskState.BASELINING, "BaselineStarted", "test")
+        runtime.attempt_count = 1
+        repo.update_runtime(runtime)
+        repo.save_attempt(attempt)
+
+    recovered = runner.invoke(
+        app,
+        ["recover", task.task_id, "--db", str(path), "--force-inflight"],
+    )
+    assert recovered.exit_code == 0, recovered.output
+    with database.connect() as conn:
+        saved_attempt = AgentRepository(conn).latest_attempt(runtime.run_id)
+    assert saved_attempt is not None
+    assert saved_attempt.status == AttemptStatus.FAILED
+    assert saved_attempt.finished_at is not None
+    assert saved_attempt.signal == "OPERATOR_RECOVERY"

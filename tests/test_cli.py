@@ -55,4 +55,44 @@ stop: {success: pass, blocked: blocked}
 def test_version_flag() -> None:
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
-    assert result.output.strip() == "0.2.0"
+    assert result.output.strip() == "0.3.0"
+
+
+def test_doctor_reports_structured_opencode_probe(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        "agentbridge.cli.probe_opencode",
+        lambda executable: {"executable": executable, "version": "1.18.10"},
+    )
+    result = runner.invoke(
+        app,
+        [
+            "doctor",
+            "--db",
+            str(tmp_path / "doctor.db"),
+            "--opencode-executable",
+            "/opt/opencode",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "status: READY" in result.output
+    assert "version: 1.18.10" in result.output
+    assert "executable: /opt/opencode" in result.output
+
+
+def test_doctor_can_require_opencode(monkeypatch, tmp_path: Path) -> None:
+    def unavailable(executable: str):
+        raise RuntimeError(f"unavailable: {executable}")
+
+    monkeypatch.setattr("agentbridge.cli.probe_opencode", unavailable)
+    result = runner.invoke(
+        app,
+        [
+            "doctor",
+            "--db",
+            str(tmp_path / "required.db"),
+            "--require-opencode",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "status: UNAVAILABLE" in result.output
+    assert "RuntimeError: unavailable: opencode" in result.output

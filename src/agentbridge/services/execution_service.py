@@ -2,6 +2,7 @@
 import subprocess  # nosec B404
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from agentbridge.domain.enums import AttemptStatus, PermissionMode, TaskState
 from agentbridge.domain.execution_attempt import ExecutionAttempt
@@ -34,6 +35,8 @@ class ExecutionService:
         run_dir.mkdir(parents=True, exist_ok=True)
         attempt: ExecutionAttempt | None = None
         attempt_dir: Path | None = None
+        prepared: dict[str, Any]
+        repair_attempt = False
         try:
             with UnitOfWork(self.database) as uow:
                 repo = AgentRepository(uow.connection)
@@ -75,6 +78,8 @@ class ExecutionService:
                         "BaselineStarted",
                         "pre_execution",
                     )
+                else:
+                    repair_attempt = True
                 blocked_permissions = [
                     category
                     for category in executor.required_permissions
@@ -103,39 +108,49 @@ class ExecutionService:
                     run_dir
                     / f"attempt-{runtime.attempt_count + 1:04d}-{attempt.attempt_id}"
                 )
-                attempt_dir.mkdir(parents=True, exist_ok=False)
-                repo.save_artifacts(
-                    capture_baseline(
-                        runtime.task_id,
-                        runtime.run_id,
-                        envelope.target.workspace,
-                        attempt_dir,
-                    )
-                )
+                runtime.attempt_count += 1
                 runtime.executor_id = executor.executor_id
                 runtime.workspace = envelope.target.workspace
                 repo.update_runtime(runtime)
-                prepared = executor.prepare(envelope, attempt_dir)
+                repo.save_attempt(attempt)
+
+            if attempt is None or attempt_dir is None:
+                raise RuntimeError("Execution attempt was not reserved")
+            attempt_dir.mkdir(parents=True, exist_ok=False)
+            baseline = capture_baseline(
+                runtime.task_id,
+                runtime.run_id,
+                envelope.target.workspace,
+                attempt_dir,
+            )
+            with UnitOfWork(self.database) as uow:
+                AgentRepository(uow.connection).save_artifacts(baseline)
+
+            prepared = executor.prepare(envelope, attempt_dir)
+            with UnitOfWork(self.database) as uow:
+                repo = AgentRepository(uow.connection)
+                manager = StateManager(repo)
                 manager.transition(
                     runtime,
                     TaskState.DISPATCHING,
                     "ExecutorPrepared",
-                    "repair_command_built"
-                    if runtime.state == TaskState.REPAIR_READY
-                    else "command_built",
-                    extra={"command_hash": prepared["command_hash"]},
+                    "repair_command_built" if repair_attempt else "command_built",
+                    extra={
+                        "command_hash": prepared["command_hash"],
+                        **{
+                            key: prepared[key]
+                            for key in ("opencode_version", "policy_hash")
+                            if key in prepared
+                        },
+                    },
                 )
 
-            if attempt is None or attempt_dir is None:
-                raise RuntimeError("Execution attempt was not prepared")
             attempt.status = AttemptStatus.RUNNING
+            pid = executor.start(prepared)
             with UnitOfWork(self.database) as uow:
                 repo = AgentRepository(uow.connection)
                 manager = StateManager(repo)
                 repo.save_attempt(attempt)
-                pid = executor.start(prepared)
-                runtime.attempt_count += 1
-                repo.update_runtime(runtime)
                 manager.transition(
                     runtime,
                     TaskState.EXECUTING,
@@ -194,22 +209,32 @@ class ExecutionService:
                 return False
         except subprocess.TimeoutExpired:
             cancel_error = self._cancel_if_running(executor)
+            artifact_error = self._record_failure_artifacts(
+                runtime, envelope, attempt_dir
+            )
             if attempt is not None:
                 attempt.finished_at = utc_now()
                 attempt.status = AttemptStatus.TIMED_OUT
             reason = "timeout" + (
                 f"; cancel_error={cancel_error}" if cancel_error else ""
             )
+            if artifact_error:
+                reason += f"; artifact_error={artifact_error}"
             self._record_timeout(runtime, attempt, reason)
             return False
         except Exception as exc:  # noqa: BLE001 - executor boundary must persist all failures
             cancel_error = self._cancel_if_running(executor)
+            artifact_error = self._record_failure_artifacts(
+                runtime, envelope, attempt_dir
+            )
             if attempt is not None:
                 attempt.finished_at = utc_now()
                 attempt.status = AttemptStatus.FAILED
             reason = f"{type(exc).__name__}: {str(exc)[:500]}"
             if cancel_error:
                 reason += f"; cancel_error={cancel_error}"
+            if artifact_error:
+                reason += f"; artifact_error={artifact_error}"
             try:
                 self._record_forced_recovery(runtime, attempt, reason)
             except Exception as recovery_exc:
@@ -245,6 +270,35 @@ class ExecutionService:
                 repo.save_attempt(attempt)
             StateManager(repo).force_recovery(persisted, reason)
         self._sync_runtime(runtime, persisted)
+
+    def _record_failure_artifacts(
+        self,
+        runtime: TaskRuntime,
+        envelope: TaskEnvelope,
+        attempt_dir: Path | None,
+    ) -> str | None:
+        if attempt_dir is None:
+            return None
+        raw = {
+            "command_path": str(attempt_dir / "command.txt"),
+            "policy_path": str(attempt_dir / "policy.json"),
+            "stdout_path": str(attempt_dir / "stdout.log"),
+            "stderr_path": str(attempt_dir / "stderr.log"),
+            "workspace": envelope.target.workspace,
+        }
+        try:
+            artifacts = collect_execution_artifacts(
+                runtime.task_id,
+                runtime.run_id,
+                raw,
+                attempt_dir,
+                envelope.target.workspace,
+            )
+            with UnitOfWork(self.database) as uow:
+                AgentRepository(uow.connection).save_artifacts(artifacts)
+        except Exception as exc:  # noqa: BLE001 - preserve the primary failure
+            return f"{type(exc).__name__}: {str(exc)[:200]}"
+        return None
 
     def _record_timeout(
         self,
