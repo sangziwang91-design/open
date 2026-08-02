@@ -38,7 +38,7 @@ The bounded machine-readable results are stored in:
 
 - GitHub Actions Python 3.12/3.13 quality jobs: **PENDING** until the branch is pushed.
 - GitHub Windows full suite, bridge persistence soak and pinned OpenCode `1.18.11` CLI contract probe: **PENDING** until the branch is pushed.
-- Real Chromium extension closed loop against the controlled ChatGPT-shaped DOM fixture: **PENDING** until GitHub installs Playwright Chromium. This local host could fetch the npm harness but its network proxy returned a zero-byte browser archive, so no local browser PASS is claimed.
+- Real Chromium extension closed loop against the controlled ChatGPT-shaped DOM fixture: **PENDING** until the final GitHub run. CI uses the open-source Chromium already present in GitHub's Ubuntu runner image, avoiding a region-dependent Playwright CDN download. This local host could fetch the npm harness but its network proxy returned a zero-byte browser archive, so no local browser PASS is claimed.
 
 ## OpenCode and browser claim boundary
 

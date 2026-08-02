@@ -10,6 +10,7 @@ const root = mkdtempSync(join(tmpdir(), "agentbridge-browser-smoke-"));
 const extensionSource = resolve("extension");
 const extensionPath = join(root, "extension");
 const userDataDir = join(root, "profile");
+const executablePath = process.env.AGENTBRIDGE_CHROMIUM_EXECUTABLE || undefined;
 let receivedTask = null;
 
 cpSync(extensionSource, extensionPath, {
@@ -153,6 +154,7 @@ let context;
 try {
   context = await chromium.launchPersistentContext(userDataDir, {
     headless: false,
+    executablePath,
     args: [
       `--disable-extensions-except=${extensionPath}`,
       `--load-extension=${extensionPath}`

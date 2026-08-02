@@ -132,8 +132,13 @@ jobs:
       - name: Install browser harness
         run: npm ci
 
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+      - name: Locate runner Chromium
+        shell: bash
+        run: |
+          chromium_path="$(command -v chromium)"
+          test -x "$chromium_path"
+          "$chromium_path" --version
+          echo "AGENTBRIDGE_CHROMIUM_EXECUTABLE=$chromium_path" >> "$GITHUB_ENV"
 
       - name: Run real extension loop in Chromium
         run: xvfb-run -a npm run test:browser
