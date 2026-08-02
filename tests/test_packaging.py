@@ -16,6 +16,10 @@ def test_package_excludes_runtime_files(tmp_path: Path) -> None:
     (root / ".env.example").write_text("SAFE=placeholder")
     (root / ".mypy_cache").mkdir()
     (root / ".mypy_cache" / "cache.json").write_text("{}")
+    (root / "node_modules").mkdir()
+    (root / "node_modules" / "dependency.js").write_text("secret")
+    (root / ".agentbridge").mkdir()
+    (root / ".agentbridge" / "bridge.token").write_text("private")
     (root / "other.sqlite3").write_text("db")
     outside = tmp_path / "outside.txt"
     outside.write_text("secret")

@@ -44,7 +44,7 @@ jobs:
         run: ruff check src tests scripts
 
       - name: Run mypy
-        run: mypy src
+        run: mypy src tests
 
       - name: Run Bandit
         run: bandit -q -r src
@@ -52,3 +52,101 @@ jobs:
       - name: Build distributions
         if: matrix.python-version == '3.12'
         run: python -m build
+
+      - name: Set up Node.js
+        if: matrix.python-version == '3.12'
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Test browser extension core
+        if: matrix.python-version == '3.12'
+        run: node --test extension/tests/core.test.js extension/tests/adapter.test.js
+
+      - name: Package browser extension
+        if: matrix.python-version == '3.12'
+        run: python scripts/package_extension.py
+
+      - name: Run bridge persistence soak
+        if: matrix.python-version == '3.12'
+        run: python scripts/bridge_soak.py --cycles 50 --restart-every 10
+
+  windows-bridge:
+    name: Windows bridge and OpenCode contract
+    runs-on: windows-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Install package and development tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+
+      - name: Run Windows test suite
+        run: python -m pytest
+
+      - name: Test browser extension core
+        run: node --test extension/tests/core.test.js extension/tests/adapter.test.js
+
+      - name: Package browser extension
+        run: python scripts/package_extension.py
+
+      - name: Run Windows bridge persistence soak
+        run: python scripts/bridge_soak.py --cycles 50 --restart-every 10
+
+      - name: Install current OpenCode CLI
+        run: npm install --global opencode-ai@1.18.11
+
+      - name: Probe real OpenCode CLI contract
+        run: agentbridge doctor --require-opencode --db opencode-contract.db
+
+  browser-extension-e2e:
+    name: Chromium extension closed loop
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install browser harness
+        run: npm ci
+
+      - name: Install pinned Chrome for Testing
+        shell: bash
+        run: |
+          browser_version="$(node -p "require('./node_modules/playwright-core/browsers.json').browsers.find(browser => browser.name === 'chromium').browserVersion")"
+          [[ "$browser_version" =~ ^[0-9]+(\.[0-9]+){3}$ ]]
+          browser_root="$RUNNER_TEMP/agentbridge-chrome-for-testing"
+          archive="$RUNNER_TEMP/agentbridge-chrome-for-testing.zip"
+          curl --fail --location --retry 4 --retry-all-errors --connect-timeout 30 --max-time 300 \
+            "https://storage.googleapis.com/chrome-for-testing-public/$browser_version/linux64/chrome-linux64.zip" \
+            --output "$archive"
+          unzip -q "$archive" -d "$browser_root"
+          chromium_path="$browser_root/chrome-linux64/chrome"
+          test -x "$chromium_path"
+          "$chromium_path" --version
+          echo "AGENTBRIDGE_CHROMIUM_EXECUTABLE=$chromium_path" >> "$GITHUB_ENV"
+
+      - name: Run real extension loop in Chromium
+        run: npm run test:browser

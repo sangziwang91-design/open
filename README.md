@@ -1,86 +1,174 @@
 # SZ-AgentBridge
 
-A model-agnostic, Chat-native control plane that turns a task envelope into a bounded executor run, an append-only event timeline, independently checked acceptance results, and a feedback envelope.
+SZ-AgentBridge 0.4 connects an explicitly armed ChatGPT web conversation to a
+single Windows-local workspace. ChatGPT acts as the planning and repair brain;
+AgentBridge turns its bounded task block into an OpenCode run, independently
+checks the declared acceptance conditions, and the browser extension sends the
+evidence back into the same conversation. After one-time setup and one **连接
+AgentBridge** click, task transfer and result feedback require no copy/paste.
 
-## Implemented scope — usable local baseline
+```mermaid
+flowchart TD
+    A["ChatGPT web · plan"] -->|agentbridge-task| B["Chrome/Edge extension"]
+    B -->|Bearer + loopback HTTP| C["AgentBridge gateway"]
+    C -->|fixed workspace + policy| D["OpenCode executor"]
+    D -->|artifacts| C
+    C -->|independent checks| E["Evidence result"]
+    E -->|automatic writeback| B
+    B --> A
+```
 
-- Pydantic task-envelope contract with strict unknown-field rejection and legacy compact-key aliases.
-- SQLite persistence with verification batch IDs, optimistic runtime revisions, WAL, migrations, and foreign-key enforcement.
-- Explicit state-transition graph. Normal writes cannot skip states; forced recovery is separately recorded.
-- Deterministic `fake` executor plus a version-probed OpenCode subprocess adapter using the current non-interactive `run` contract.
-- Fail-closed OpenCode permission preflight: file writes, deletion, network, and shell effects must all be explicitly allowed because OpenCode's edit/shell tools cannot isolate those effects from one another.
-- Runtime-inline OpenCode permission policy with external-directory/subagent denials, `.env` protection, plugin isolation, immutable policy evidence, bounded timeouts, and process-group cleanup.
-- Per-attempt baseline, command, stdout, stderr, and git-diff evidence artifacts with SHA-256 integrity checks.
-- Permission-gated command verification, workspace-confined file verification, and bounded command timeouts.
-- Bounded repair retries, explicit in-flight recovery, and terminal attempt recording after errors or timeouts.
-- Claim ceiling and YAML/Markdown feedback-envelope rendering.
-- Typer CLI: `init`, `doctor`, `submit`, `status`, `run`, `verify`, `feedback`, and `recover`.
-- GitHub Actions quality gates on Python 3.12 and 3.13.
+This changes the cost split; it does not make execution free. The web Chat can
+do most task decomposition and repair reasoning, while OpenCode still needs a
+configured model/provider for the execution it performs.
 
-## Boundary
+## Implemented functions
 
-This package proves only that the declared checks passed in the current workspace and environment. It does not establish universal correctness, product maturity, autonomous usefulness, or external effectiveness.
+| Function | Current evidence |
+| --- | --- |
+| ChatGPT web task detection and result insertion | Protocol/adapter unit tests; controlled Chromium gate defined in CI |
+| Authenticated browser → local gateway | Real HTTP integration tests with bearer, CORS, loopback and Host-header checks |
+| Automatic task → execute → verify → feedback chain | End-to-end fake-executor tests through HTTP and persistent worker |
+| OpenCode non-interactive adapter | Real process boundary with version/flag probe, policy injection, timeouts and artifacts |
+| Persistent multi-round sessions | SQLite jobs keyed by `session_id + request_id`; idempotency and restart soak |
+| Windows execution path | Dedicated Windows GitHub gate for the full suite, bridge soak, packaging and OpenCode CLI probe |
 
-## Install
+The table describes bounded automated checks. A logged-in, owner-host ChatGPT
+conversation is a separate acceptance step because CI has no account session and
+cannot prove that a future ChatGPT DOM has not changed.
 
-```bash
+## Windows quick start
+
+Python 3.12+, Chrome or Edge, Node.js, Git, and OpenCode are required. In
+PowerShell:
+
+```powershell
+git clone https://github.com/sangziwang91-design/open.git
+cd open
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
 python -m pip install -e .
-```
-
-Python 3.12+ is required. Runtime dependencies are bounded to compatible major versions of Pydantic, Typer, and PyYAML.
-
-## Verified local flow
-
-```bash
-agentbridge init --db demo.db
-agentbridge doctor --db demo.db
-agentbridge submit examples/task-success.yaml --db demo.db
-agentbridge run TASK-DEMO-SUCCESS --executor fake --db demo.db --runs-dir data/runs
-agentbridge verify TASK-DEMO-SUCCESS --db demo.db --runs-dir data/runs
-agentbridge feedback TASK-DEMO-SUCCESS --db demo.db --format markdown
-```
-
-## OpenCode flow
-
-Install and authenticate OpenCode using its official instructions, then require a healthy adapter contract before submitting work:
-
-```bash
-npm install -g opencode-ai
+npm install --global opencode-ai
 opencode auth login
-agentbridge doctor --require-opencode --db demo.db
-agentbridge submit examples/task-opencode.yaml --db demo.db
-agentbridge run TASK-DEMO-OPENCODE --db demo.db --runs-dir data/runs
-agentbridge verify TASK-DEMO-OPENCODE --db demo.db --runs-dir data/runs
+agentbridge doctor --require-opencode
 ```
 
-Use `--opencode-executable /absolute/path/to/opencode` on `doctor` and `run` when OpenCode is not on `PATH`.
+Start the bridge from the `open` directory, but point `--workspace` at the one
+repository OpenCode is allowed to change:
 
-The adapter requires OpenCode 1.1.1 or newer and probes the exact `run` flags it needs. It currently accepts only whole-workspace scope with no exclusions, and requires explicit `allow` for `file_write`, `delete`, `network`, and `shell`. This is intentionally fail-closed: OpenCode shell/edit operations cannot faithfully enforce a narrower combination without an external operating-system sandbox. The launched process receives a runtime-inline policy that denies external-directory and subagent tools, runs with external plugins disabled, and records a secret-free `policy.json` artifact and hash for each attempt. OpenCode administrator-managed configuration can still take precedence, so deployments must verify their managed policy separately.
-
-When OpenCode is missing or incompatible, the run is recorded as `RECOVERY_REQUIRED` rather than presented as successful. When permissions are insufficient, it is blocked before any attempt starts.
-
-If the controller itself was interrupted while a run remained in an in-flight state, an operator can explicitly reconcile it:
-
-```bash
-agentbridge recover TASK-ID --db demo.db --force-inflight
+```powershell
+agentbridge bridge `
+  --workspace C:\work\my-project `
+  --acknowledge-no-os-sandbox
 ```
 
-This flag does not guess whether an external process is still alive or kill an unknown PID. Use it only after confirming that the prior worker is no longer authoritative.
+The command creates `.agentbridge\bridge.token`, binds only
+`http://127.0.0.1:8765`, and keeps running until Ctrl+C. If `opencode` is not on
+`PATH`, add `--opencode-executable C:\full\path\to\opencode.cmd`. Provider keys
+from environment variables are not inherited by default; opt in for the OpenCode
+process by variable name, for example `--inherit-env OPENAI_API_KEY`. Verification
+commands never receive those opt-in provider variables.
 
-SZ-AgentBridge is independent software and is not built by or affiliated with the OpenCode team.
+Then install the extension once:
 
-## Development checks
+1. Open `chrome://extensions` or `edge://extensions` and enable Developer mode.
+2. Choose **Load unpacked** and select the repository's `extension` directory.
+3. In the extension options, use `http://127.0.0.1:8765` and paste the output of
+   `Get-Content .agentbridge\bridge.token`.
+4. Open `https://chatgpt.com`, enter a conversation, and click **连接
+   AgentBridge** in the lower-right control.
+5. After ChatGPT acknowledges the protocol, describe the real task normally.
+
+The extension arms only the current open page. Reloading, manual disconnect, the
+configured step limit, or a result requiring human input stops the automatic
+loop. The default limit is 10 execution rounds.
+
+OpenCode's [Windows documentation](https://opencode.ai/docs/windows-wsl/)
+recommends WSL for its best Windows compatibility.
+The direct-Windows path above remains supported and is exercised in Windows CI;
+WSL can also be used when Windows localhost forwarding and the target workspace
+have been configured by the owner.
+
+## What happens in each round
+
+1. The armed ChatGPT conversation emits one strict `agentbridge-task` JSON block.
+2. The extension accepts it only when its session id matches the armed session.
+3. The local gateway rejects browser attempts to choose a workspace, executable,
+   environment, token, or permissions.
+4. A persistent, serial worker compiles the task with operator-owned settings and
+   launches OpenCode.
+5. AgentBridge captures baseline, command, policy, stdout, stderr, diff, and
+   verification evidence.
+6. A compact `agentbridge-result` block is automatically sent back to ChatGPT.
+7. ChatGPT either closes, asks the user for a blocked decision, or emits a new
+   request id for the next repair round.
+
+Repeated `(session_id, request_id)` submissions return the original job. Reusing
+the same request id with different content is rejected. On controller restart,
+queued jobs resume, but an unknown in-flight process is marked
+`RECOVERY_REQUIRED` and is never blindly replayed.
+
+## Security boundary
+
+- The gateway listens on a loopback address only, requires a random bearer token,
+  accepts Chrome-extension origins rather than web-page origins, rejects DNS
+  rebinding Host headers, bounds bodies and queue depth, and runs one job at a
+  time per workspace.
+- The token is kept in extension-local storage, not synchronized storage, and is
+  used by the service worker rather than inserted into the ChatGPT page.
+- Chat cannot select the filesystem root or elevate local permissions. Those are
+  fixed at gateway startup.
+- OpenCode receives a minimal environment allowlist, external-directory and
+  subagent denials, `.env` protection, plugin isolation, bounded timeouts, and
+  process-tree cleanup.
+
+AgentBridge is not an operating-system sandbox. The bridge requires
+`--acknowledge-no-os-sandbox` because OpenCode and task-declared verification
+commands can execute local code. The OpenCode adapter deliberately allows edit,
+shell, network and delete effects; shell commands can escape tool-level path rules.
+Treat the armed conversation as trusted controller input and use a disposable or
+version-controlled workspace with recoverable credentials and backups.
+
+## Supported and unsupported surfaces
+
+The shipped adapter supports the ChatGPT website in Chrome/Edge. It does not
+claim support for the native ChatGPT app, arbitrary closed native apps, Claude,
+Gemini, Kimi, or future ChatGPT DOM revisions. Additional websites need their own
+tested DOM adapter; a generic clipboard robot is intentionally not presented as
+reliable automation.
+
+## Local evidence commands
 
 ```bash
 python -m pip install -e '.[dev]'
 python -m pytest
 ruff check src tests scripts
-mypy src
+mypy src tests
 bandit -q -r src
-python -m build
-python scripts/package.py
-python scripts/long_run.py --cycles 500
+npm ci
+npm test
+python scripts/package_extension.py
+python scripts/bridge_soak.py --cycles 100 --restart-every 20
 python scripts/opencode_adapter_soak.py --cycles 100
+python -m build
 ```
 
-The latest bounded evidence and exact claim boundary are recorded in `VALIDATION.md` and `validation/`.
+The Chromium test is `npm run test:browser`; it needs a Playwright Chromium
+installation and a display/Xvfb. Exact bounded results and remaining limits are
+recorded in `VALIDATION.md` and `validation/`.
+
+## Existing control-plane CLI
+
+The lower-level evidence-gated commands remain available: `init`, `doctor`,
+`submit`, `status`, `run`, `verify`, `feedback`, and `recover`. For a deterministic
+local smoke test without OpenCode:
+
+```bash
+agentbridge submit examples/task-success.yaml --db demo.db
+agentbridge run TASK-DEMO-SUCCESS --executor fake --db demo.db --runs-dir data/runs
+agentbridge verify TASK-DEMO-SUCCESS --db demo.db --runs-dir data/runs
+agentbridge feedback TASK-DEMO-SUCCESS --db demo.db
+```
+
+SZ-AgentBridge is independent software and is not built by or affiliated with
+OpenAI, ChatGPT, or the OpenCode team.
