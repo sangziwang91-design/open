@@ -55,7 +55,7 @@ stop: {success: pass, blocked: blocked}
 def test_version_flag() -> None:
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
-    assert result.output.strip() == "0.3.0"
+    assert result.output.strip() == "0.4.0"
 
 
 def test_doctor_reports_structured_opencode_probe(monkeypatch, tmp_path: Path) -> None:
@@ -96,3 +96,23 @@ def test_doctor_can_require_opencode(monkeypatch, tmp_path: Path) -> None:
     assert result.exit_code == 1
     assert "status: UNAVAILABLE" in result.output
     assert "RuntimeError: unavailable: opencode" in result.output
+
+
+def test_bridge_requires_explicit_no_sandbox_acknowledgement(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    result = runner.invoke(app, ["bridge", "--workspace", str(workspace)])
+    assert result.exit_code == 2
+    assert "--acknowledge-no-os-sandbox" in result.output
+    result = runner.invoke(
+        app,
+        [
+            "bridge",
+            "--workspace",
+            str(workspace),
+            "--executor",
+            "fake",
+        ],
+    )
+    assert result.exit_code == 2
+    assert "verification commands" in result.output

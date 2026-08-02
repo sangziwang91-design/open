@@ -3,6 +3,7 @@ from pathlib import Path
 
 EXCLUDED_PARTS = {
     ".git",
+    ".agentbridge",
     ".hypothesis",
     ".mypy_cache",
     ".pytest_cache",
@@ -14,6 +15,7 @@ EXCLUDED_PARTS = {
     "venv",
     "data",
     "htmlcov",
+    "node_modules",
 }
 EXCLUDED_NAMES = {".coverage", ".env", "agentbridge.db", "sz-agentbridge.zip"}
 EXCLUDED_SUFFIXES = {".db", ".pyc", ".pyo", ".sqlite", ".sqlite3"}

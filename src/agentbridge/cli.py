@@ -9,6 +9,9 @@ import typer
 import yaml
 
 from agentbridge import __version__
+from agentbridge.bridge.controller import BridgeConfig, BridgeController
+from agentbridge.bridge.security import load_or_create_token
+from agentbridge.bridge.server import serve_bridge
 from agentbridge.domain.capability import CapabilitySnapshot
 from agentbridge.domain.enums import AttemptStatus, TaskState
 from agentbridge.domain.runtime import TaskRuntime
@@ -36,6 +39,90 @@ app = typer.Typer(
 class ExecutorName(str, Enum):
     FAKE = "fake"
     OPENCODE = "opencode"
+
+
+@app.command()
+def bridge(
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace",
+            exists=True,
+            file_okay=False,
+            resolve_path=True,
+            help="The only workspace the browser bridge may control.",
+        ),
+    ],
+    executor: Annotated[
+        ExecutorName,
+        typer.Option("--executor", help="Local executor selected by the operator."),
+    ] = ExecutorName.OPENCODE,
+    db: Annotated[Path, typer.Option("--db")] = Path(".agentbridge/bridge.db"),
+    runs_dir: Annotated[Path, typer.Option("--runs-dir")] = Path(".agentbridge/runs"),
+    token_file: Annotated[Path, typer.Option("--token-file")] = Path(
+        ".agentbridge/bridge.token"
+    ),
+    host: Annotated[str, typer.Option("--host")] = "127.0.0.1",
+    port: Annotated[int, typer.Option("--port", min=1, max=65535)] = 8765,
+    opencode_executable: Annotated[
+        str, typer.Option("--opencode-executable")
+    ] = "opencode",
+    inherit_env: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--inherit-env",
+            help="Additional environment variable name passed to OpenCode; repeatable.",
+        ),
+    ] = None,
+    max_timeout_seconds: Annotated[
+        int, typer.Option("--max-timeout-seconds", min=1, max=3600)
+    ] = 1800,
+    max_pending_jobs: Annotated[
+        int, typer.Option("--max-pending-jobs", min=1, max=1000)
+    ] = 32,
+    acknowledge_no_os_sandbox: Annotated[
+        bool,
+        typer.Option(
+            "--acknowledge-no-os-sandbox",
+            help=(
+                "Required for OpenCode: acknowledge that this process is not an OS sandbox."
+            ),
+        ),
+    ] = False,
+) -> None:
+    """Run the authenticated loopback gateway used by the browser extension."""
+    if not acknowledge_no_os_sandbox:
+        typer.echo(
+            "Bridge startup requires --acknowledge-no-os-sandbox because both "
+            "OpenCode and task-declared verification commands can execute local "
+            "code. Use a disposable or version-controlled workspace.",
+            err=True,
+        )
+        raise typer.Exit(2)
+    database = _database(db)
+    token, created = load_or_create_token(token_file)
+    config = BridgeConfig(
+        workspace=workspace,
+        database=database,
+        runs_dir=runs_dir,
+        executor_name=executor.value,
+        opencode_executable=opencode_executable,
+        inherited_environment=frozenset(inherit_env or []),
+        max_timeout_seconds=max_timeout_seconds,
+        max_pending_jobs=max_pending_jobs,
+    )
+    controller = BridgeController(config)
+    typer.echo(f"Bridge: http://{host}:{port}")
+    typer.echo(f"Workspace: {config.workspace}")
+    typer.echo(f"Executor: {config.executor_name}")
+    typer.echo(
+        f"Token file: {token_file.resolve()} ({'created' if created else 'loaded'})"
+    )
+    typer.echo("Press Ctrl+C to stop.")
+    try:
+        serve_bridge(host, port, controller, token)
+    except KeyboardInterrupt:
+        typer.echo("Bridge stopped.")
 
 
 def _database(path: Path) -> Database:
@@ -211,7 +298,9 @@ def run(
         with database.connect() as conn:
             events = AgentRepository(conn).list_events(task_id)
         if events:
-            typer.echo(f"Reason: {events[-1].payload.get('reason', 'unknown')}", err=True)
+            typer.echo(
+                f"Reason: {events[-1].payload.get('reason', 'unknown')}", err=True
+            )
         raise typer.Exit(1)
 
 

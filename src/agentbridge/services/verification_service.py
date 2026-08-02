@@ -22,9 +22,15 @@ from agentbridge.verification.git_verifier import GitDiffVerifier
 
 
 class VerificationService:
-    def __init__(self, database: Database, runs_dir: Path) -> None:
+    def __init__(
+        self,
+        database: Database,
+        runs_dir: Path,
+        command_environment: dict[str, str] | None = None,
+    ) -> None:
         self.database = database
         self.runs_dir = Path(runs_dir)
+        self.command_environment = command_environment
         self.verifiers: dict[str, Verifier] = {
             "command": CommandVerifier(),
             "gitdiff": GitDiffVerifier(),
@@ -43,6 +49,7 @@ class VerificationService:
         command_verifier = CommandVerifier(
             timeout_seconds=envelope.budget.timeout_seconds,
             evidence_dir=verification_dir,
+            environment=self.command_environment,
         )
         self.verifiers["command"] = command_verifier
         run_dir = self.runs_dir / runtime.run_id

@@ -15,6 +15,21 @@ from agentbridge.verification.base import Verifier
 SHELL_MARKERS = ("|", "&&", "||", ">", "<", ";", "\n")
 
 
+def split_direct_command(command: str, windows: bool | None = None) -> list[str]:
+    is_windows = os.name == "nt" if windows is None else windows
+    tokens = shlex.split(command, posix=not is_windows)
+    if not is_windows:
+        return tokens
+    # shlex(posix=False) preserves Windows backslashes but also preserves paired
+    # quote characters. subprocess.list2cmdline expects the quote-free argv.
+    return [
+        token[1:-1]
+        if len(token) >= 2 and token[0] == token[-1] and token[0] in {'"', "'"}
+        else token
+        for token in tokens
+    ]
+
+
 class CommandVerifier(Verifier):
     verifier_id = "command"
 
@@ -22,9 +37,11 @@ class CommandVerifier(Verifier):
         self,
         timeout_seconds: int = 300,
         evidence_dir: Path | None = None,
+        environment: dict[str, str] | None = None,
     ) -> None:
         self.timeout_seconds = timeout_seconds
         self.evidence_dir = evidence_dir
+        self.environment = dict(environment) if environment is not None else None
 
     def log_path(self, run_dir: Path, check_id: str) -> Path:
         directory = self.evidence_dir or run_dir
@@ -49,13 +66,17 @@ class CommandVerifier(Verifier):
                 detail="Command acceptance is missing a command",
             )
         use_shell = any(marker in item.command for marker in SHELL_MARKERS)
-        if use_shell and permissions.shell.mode != PermissionMode.ALLOW:
+        if permissions.shell.mode != PermissionMode.ALLOW:
             return VerificationResult(
                 check_id=item.id,
                 status=VerificationStatus.FAIL,
                 verifier_id=self.verifier_id,
                 failure_category=FailureCategory.PERMISSION,
-                detail="Shell syntax was blocked by task permissions",
+                detail=(
+                    "Command execution was blocked by task shell permissions"
+                    if not use_shell
+                    else "Shell syntax was blocked by task permissions"
+                ),
             )
         try:
             if use_shell:
@@ -70,7 +91,7 @@ class CommandVerifier(Verifier):
                 else:
                     command = [shutil.which("sh") or "/bin/sh", "-c", item.command]
             else:
-                command = shlex.split(item.command, posix=os.name != "nt")
+                command = split_direct_command(item.command)
         except ValueError as exc:
             return VerificationResult(
                 check_id=item.id,
@@ -89,6 +110,7 @@ class CommandVerifier(Verifier):
                 text=True,
                 check=False,
                 timeout=self.timeout_seconds,
+                env=self.environment,
             )
         except subprocess.TimeoutExpired as exc:
             stdout = (
