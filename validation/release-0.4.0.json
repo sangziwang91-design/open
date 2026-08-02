@@ -1,0 +1,79 @@
+{
+  "package": "sz-agentbridge",
+  "version": "0.4.0",
+  "validated_implementation_commit": "664c86e606d6a6807284c46b7d6b2899de92416a",
+  "quality_gates": {
+    "pytest": {
+      "status": "PASS",
+      "tests": 97,
+      "platforms": [
+        "linux-python-3.12",
+        "linux-python-3.13",
+        "windows-python-3.12"
+      ]
+    },
+    "ruff": "PASS",
+    "mypy": {
+      "status": "PASS",
+      "checked_files": 73,
+      "scope": "src tests"
+    },
+    "bandit": "PASS",
+    "compileall": "PASS",
+    "browser_core_tests": {
+      "status": "PASS",
+      "tests": 11
+    },
+    "npm_high_audit": {
+      "status": "PASS",
+      "vulnerabilities": 0
+    }
+  },
+  "github_actions": {
+    "status": "PASS",
+    "run_id": 30751492180,
+    "run_number": 16,
+    "run_url": "https://github.com/sangziwang91-design/open/actions/runs/30751492180",
+    "python_3_12": "PASS",
+    "python_3_13": "PASS",
+    "windows_bridge_and_opencode_contract": "PASS",
+    "chromium_extension_closed_loop": "PASS"
+  },
+  "windows": {
+    "pytest": 97,
+    "bridge_soak": {
+      "completed": 50,
+      "cycles": 50,
+      "duplicate_checks": 5,
+      "controller_restarts": 4,
+      "status": "PASS"
+    },
+    "opencode": {
+      "package": "opencode-ai@1.18.11",
+      "doctor_status": "READY",
+      "reported_version": "1.18.11"
+    }
+  },
+  "browser": {
+    "status": "PASS",
+    "browser": "Google Chrome for Testing 151.0.7922.34",
+    "fixture": "controlled ChatGPT-shaped DOM",
+    "extension": "unpacked Manifest V3",
+    "automatic_writeback_steps": 1
+  },
+  "long_run": {
+    "bridge_cycles": 1000,
+    "core_cycles": 3000,
+    "opencode_adapter_cycles": 200,
+    "sqlite_integrity": "ok",
+    "foreign_key_errors": 0,
+    "status": "PASS"
+  },
+  "claim_boundaries": {
+    "live_logged_in_chatgpt": "OWNER_ACCEPTANCE_REQUIRED",
+    "credentialed_model_execution": "OWNER_ACCEPTANCE_REQUIRED",
+    "native_chat_apps": "UNSUPPORTED",
+    "operating_system_sandbox": false,
+    "opencode_execution_tokens": "MAY_STILL_BE_CONSUMED"
+  }
+}
