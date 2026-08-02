@@ -132,13 +132,21 @@ jobs:
       - name: Install browser harness
         run: npm ci
 
-      - name: Locate runner Chromium
+      - name: Install pinned Chrome for Testing
         shell: bash
         run: |
-          chromium_path="$(command -v chromium)"
+          browser_version="$(node -p "require('./node_modules/playwright-core/browsers.json').browsers.find(browser => browser.name === 'chromium').browserVersion")"
+          [[ "$browser_version" =~ ^[0-9]+(\.[0-9]+){3}$ ]]
+          browser_root="$RUNNER_TEMP/agentbridge-chrome-for-testing"
+          archive="$RUNNER_TEMP/agentbridge-chrome-for-testing.zip"
+          curl --fail --location --retry 4 --retry-all-errors --connect-timeout 30 --max-time 300 \
+            "https://storage.googleapis.com/chrome-for-testing-public/$browser_version/linux64/chrome-linux64.zip" \
+            --output "$archive"
+          unzip -q "$archive" -d "$browser_root"
+          chromium_path="$browser_root/chrome-linux64/chrome"
           test -x "$chromium_path"
           "$chromium_path" --version
           echo "AGENTBRIDGE_CHROMIUM_EXECUTABLE=$chromium_path" >> "$GITHUB_ENV"
 
       - name: Run real extension loop in Chromium
-        run: xvfb-run -a npm run test:browser
+        run: npm run test:browser

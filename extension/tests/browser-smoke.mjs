@@ -153,15 +153,19 @@ const port = server.address().port;
 let context;
 try {
   context = await chromium.launchPersistentContext(userDataDir, {
-    headless: false,
+    channel: "chromium",
+    headless: true,
     executablePath,
+    timeout: 30_000,
     args: [
       `--disable-extensions-except=${extensionPath}`,
       `--load-extension=${extensionPath}`
     ]
   });
   let [worker] = context.serviceWorkers();
-  if (!worker) worker = await context.waitForEvent("serviceworker");
+  if (!worker) {
+    worker = await context.waitForEvent("serviceworker", { timeout: 15_000 });
+  }
   const extensionId = new URL(worker.url()).host;
   const options = await context.newPage();
   await options.goto(`chrome-extension://${extensionId}/options.html`);
