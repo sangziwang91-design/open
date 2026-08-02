@@ -1,6 +1,5 @@
 import os
 import shlex
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -25,8 +24,7 @@ def run(command: str, workspace: Path, *, shell: PermissionMode = PermissionMode
 
 def test_shell_pipeline_is_explicitly_permission_gated(tmp_path: Path) -> None:
     if os.name == "nt":
-        producer = subprocess.list2cmdline([sys.executable, "-c", "print('ok value')"])
-        command = f"{producer} | findstr ok"
+        command = "echo ok | findstr ok"
     else:
         command = f"{shlex.quote(sys.executable)} -c \"print('ok')\" | grep ok"
     assert run(command, tmp_path).status == VerificationStatus.PASS
