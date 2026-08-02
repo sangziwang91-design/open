@@ -1,5 +1,7 @@
 import sqlite3
 from pathlib import Path
+from types import TracebackType
+from typing import Literal
 
 SCHEMA_SQL = """
 PRAGMA foreign_keys = ON;
@@ -105,13 +107,28 @@ CREATE INDEX IF NOT EXISTS idx_bridge_jobs_status_created
 """
 
 
+class ClosingConnection(sqlite3.Connection):
+    """Commit or roll back and then release the file handle on context exit."""
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> Literal[False]:
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
+
+
 class Database:
     def __init__(self, path: str | Path = "agentbridge.db") -> None:
         self.path = Path(path)
 
     def connect(self) -> sqlite3.Connection:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(self.path)
+        conn = sqlite3.connect(self.path, factory=ClosingConnection)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA busy_timeout = 5000")
