@@ -28,7 +28,9 @@ stop: {success: pass, blocked: blocked}
     assert result.exit_code == 0, result.output
     result = runner.invoke(app, ["submit", str(task_file), "--db", str(db)])
     assert result.exit_code == 0, result.output
-    task_id = re.search(r"Task ID: (\S+)", result.output).group(1)
+    task_match = re.search(r"Task ID: (\S+)", result.output)
+    assert task_match is not None, result.output
+    task_id = task_match.group(1)
     result = runner.invoke(
         app,
         [

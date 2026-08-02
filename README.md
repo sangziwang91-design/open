@@ -143,7 +143,7 @@ reliable automation.
 python -m pip install -e '.[dev]'
 python -m pytest
 ruff check src tests scripts
-mypy src
+mypy src tests
 bandit -q -r src
 npm ci
 npm test
