@@ -142,15 +142,19 @@
     if (state.processed.has(key) || state.busy) return;
     const retryAt = state.retryAfter.get(key) || 0;
     if (Date.now() < retryAt) return;
-    const current = await config();
-    if (state.stepCount >= current.maxSteps) {
-      state.armed = false;
-      setStatus(`已达到 ${current.maxSteps} 轮上限；请检查后重新连接`, true);
-      return;
-    }
+    // Reserve the single-worker slot before the first await. MutationObserver
+    // callbacks can otherwise enter this function more than once while the
+    // asynchronous settings read is pending, causing duplicate writeback even
+    // though the gateway correctly deduplicates the local job.
     state.busy = true;
-    setStatus(`提交第 ${state.stepCount + 1} 轮…`);
     try {
+      const current = await config();
+      if (state.stepCount >= current.maxSteps) {
+        state.armed = false;
+        setStatus(`已达到 ${current.maxSteps} 轮上限；请检查后重新连接`, true);
+        return;
+      }
+      setStatus(`提交第 ${state.stepCount + 1} 轮…`);
       const submitted = await gateway("POST", "/v1/jobs", task);
       if (!submitted.ok) throw new Error(submitted.body && submitted.body.error || `HTTP ${submitted.status}`);
       const job = Core.isTerminalJob(submitted.body) ? submitted.body : await pollJob(submitted.body.job_id, current, task.session_id);

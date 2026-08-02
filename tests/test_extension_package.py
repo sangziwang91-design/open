@@ -26,6 +26,12 @@ def test_manifest_has_bounded_v3_permissions() -> None:
     assert content.index("await Chat.insertAndMaybeSend") < content.index(
         "state.processed.add(key)"
     )
+    handler = content[
+        content.index("async function handleTask") : content.index("function scan")
+    ]
+    assert handler.index("state.busy = true") < handler.index(
+        "const current = await config()"
+    )
 
 
 def test_extension_package_is_complete_and_reproducible(tmp_path: Path) -> None:

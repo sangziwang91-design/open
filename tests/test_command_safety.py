@@ -1,4 +1,6 @@
+import os
 import shlex
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -7,6 +9,7 @@ from agentbridge.domain.enums import FailureCategory, PermissionMode, Verificati
 from agentbridge.domain.task import AcceptanceItem, Permissions
 from agentbridge.verification.command_verifier import (
     CommandVerifier,
+    contains_shell_syntax,
     split_direct_command,
 )
 
@@ -21,7 +24,11 @@ def run(command: str, workspace: Path, *, shell: PermissionMode = PermissionMode
 
 
 def test_shell_pipeline_is_explicitly_permission_gated(tmp_path: Path) -> None:
-    command = f"{shlex.quote(sys.executable)} -c \"print('ok')\" | grep ok"
+    if os.name == "nt":
+        producer = subprocess.list2cmdline([sys.executable, "-c", "print('ok value')"])
+        command = f"{producer} | findstr ok"
+    else:
+        command = f"{shlex.quote(sys.executable)} -c \"print('ok')\" | grep ok"
     assert run(command, tmp_path).status == VerificationStatus.PASS
     denied = run(command, tmp_path, shell=PermissionMode.DENY)
     assert denied.status == VerificationStatus.FAIL
@@ -61,6 +68,12 @@ def test_windows_direct_command_split_removes_quotes_without_losing_backslashes(
         'python -c "raise SystemExit(9)" "C:\\Program Files\\demo"',
         windows=True,
     ) == ["python", "-c", "raise SystemExit(9)", "C:\\Program Files\\demo"]
+
+
+def test_shell_detection_ignores_operators_inside_quoted_arguments() -> None:
+    assert not contains_shell_syntax('python -c "a=1; print(a | 2)"')
+    assert contains_shell_syntax('python -c "print(1)" | findstr 1')
+    assert contains_shell_syntax("python -m pytest && echo complete")
 
 
 def test_command_verifier_can_run_with_filtered_environment(tmp_path: Path) -> None:

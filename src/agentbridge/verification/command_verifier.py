@@ -12,7 +12,36 @@ from agentbridge.domain.task import AcceptanceItem, Permissions
 from agentbridge.domain.verification import VerificationResult
 from agentbridge.verification.base import Verifier
 
-SHELL_MARKERS = ("|", "&&", "||", ">", "<", ";", "\n")
+SHELL_MARKERS = frozenset("|&><;\n")
+
+
+def contains_shell_syntax(command: str) -> bool:
+    """Return true only for shell operators outside quoted arguments.
+
+    Acceptance commands often contain Python or JavaScript snippets such as
+    ``python -c "a=1; print(a)"``. Treating the semicolon inside that quoted
+    argument as a shell operator incorrectly routes an otherwise direct argv
+    through cmd.exe on Windows and changes its quoting semantics.
+    """
+    quote: str | None = None
+    escaped = False
+    for character in command:
+        if escaped:
+            escaped = False
+            continue
+        if character == "\\" and quote != "'":
+            escaped = True
+            continue
+        if quote is not None:
+            if character == quote:
+                quote = None
+            continue
+        if character in {'"', "'"}:
+            quote = character
+            continue
+        if character in SHELL_MARKERS:
+            return True
+    return False
 
 
 def split_direct_command(command: str, windows: bool | None = None) -> list[str]:
@@ -65,7 +94,7 @@ class CommandVerifier(Verifier):
                 failure_category=FailureCategory.INPUT,
                 detail="Command acceptance is missing a command",
             )
-        use_shell = any(marker in item.command for marker in SHELL_MARKERS)
+        use_shell = contains_shell_syntax(item.command)
         if permissions.shell.mode != PermissionMode.ALLOW:
             return VerificationResult(
                 check_id=item.id,
