@@ -109,7 +109,7 @@ jobs:
         run: python scripts/bridge_soak.py --cycles 50 --restart-every 10
 
       - name: Install current OpenCode CLI
-        run: npm install --global opencode-ai@1.18.11
+        run: npm install --global opencode-ai@1.18.31
 
       - name: Probe real OpenCode CLI contract
         run: agentbridge doctor --require-opencode --db opencode-contract.db
