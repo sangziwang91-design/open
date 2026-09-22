@@ -73,6 +73,10 @@
   }
 
   async function toggleArm() {
+    if (!state.armed && navigator.userActivation && !navigator.userActivation.isActive) {
+      setStatus("需要用户本人点击连接按钮", true);
+      return;
+    }
     if (state.armed) {
       state.armed = false;
       state.sessionId = null;
