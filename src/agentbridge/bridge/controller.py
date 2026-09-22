@@ -14,6 +14,7 @@ from agentbridge.bridge.protocol import (
     BridgeResultMessage,
 )
 from agentbridge.bridge.store import BridgeStore, StoredBridgeJob
+from agentbridge.bridge.security import redact_sensitive_text
 from agentbridge.domain.enums import ArtifactType, PermissionMode, TaskState
 from agentbridge.domain.runtime import TaskRuntime
 from agentbridge.domain.task import (
@@ -452,4 +453,4 @@ class BridgeController:
         for candidate in sorted(candidates, key=len, reverse=True):
             if candidate:
                 redacted = redacted.replace(candidate, "<LOCAL_PATH>")
-        return redacted
+        return redact_sensitive_text(redacted)
