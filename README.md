@@ -6,6 +6,8 @@ AgentBridge turns its bounded task block into an OpenCode run, independently
 checks the declared acceptance conditions, and the browser extension sends the
 evidence back into the same conversation. After one-time setup and one **连接
 AgentBridge** click, task transfer and result feedback require no copy/paste.
+That first arm must be a trusted user click; page scripts cannot silently arm the
+local executor.
 
 ```mermaid
 flowchart TD
@@ -62,8 +64,11 @@ agentbridge bridge `
   --acknowledge-no-os-sandbox
 ```
 
-The command creates `.agentbridge\bridge.token`, binds only
-`http://127.0.0.1:8765`, and keeps running until Ctrl+C. If `opencode` is not on
+The acknowledgement is substantive: with the OpenCode executor, AgentBridge may
+edit or delete files inside the selected workspace and permit shell/network
+effects because those effects cannot be isolated reliably at the tool layer.
+It is not an OS sandbox. The command creates `.agentbridge\bridge.token`, binds
+only `http://127.0.0.1:8765`, and keeps running until Ctrl+C. If `opencode` is not on
 `PATH`, add `--opencode-executable C:\full\path\to\opencode.cmd`. Provider keys
 from environment variables are not inherited by default; opt in for the OpenCode
 process by variable name, for example `--inherit-env OPENAI_API_KEY`. Verification
@@ -99,7 +104,7 @@ have been configured by the owner.
    launches OpenCode.
 5. AgentBridge captures baseline, command, policy, stdout, stderr, diff, and
    verification evidence.
-6. A compact `agentbridge-result` block is automatically sent back to ChatGPT.
+6. A compact `agentbridge-result` block is automatically sent back to ChatGPT after workspace paths and common credential/token shapes are redacted.
 7. ChatGPT either closes, asks the user for a blocked decision, or emits a new
    request id for the next repair round.
 
