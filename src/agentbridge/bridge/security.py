@@ -1,7 +1,39 @@
 import os
 import secrets
+import re
 import stat
 from pathlib import Path
+from collections.abc import Mapping
+
+_SECRET_NAME = re.compile(r"(?:^|_)(?:API_?KEY|TOKEN|SECRET|PASSWORD|PASS|CREDENTIALS?)(?:_|$)", re.IGNORECASE)
+_SECRET_PATTERNS = (
+    re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b"),
+    re.compile(r"\bAIza[0-9A-Za-z_-]{16,}\b"),
+    re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{16,}\b"),
+    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{16,}\b"),
+    re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{16,}\b"),
+    re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{16,}\b"),
+)
+
+
+def redact_sensitive_text(
+    text: str,
+    environment: Mapping[str, str] | None = None,
+) -> str:
+    """Remove common credential shapes and secret-valued environment data."""
+    redacted = str(text)
+    for pattern in _SECRET_PATTERNS:
+        redacted = pattern.sub("<REDACTED_SECRET>", redacted)
+    source = os.environ if environment is None else environment
+    secret_values = {
+        value
+        for key, value in source.items()
+        if value and len(value) >= 8 and _SECRET_NAME.search(key)
+    }
+    for value in sorted(secret_values, key=len, reverse=True):
+        redacted = redacted.replace(value, "<REDACTED_SECRET>")
+    return redacted
+
 
 
 def load_or_create_token(path: Path) -> tuple[str, bool]:
