@@ -3,7 +3,7 @@ import stat
 from pathlib import Path
 
 from agentbridge.bridge.controller import filtered_bridge_environment
-from agentbridge.bridge.security import load_or_create_token
+from agentbridge.bridge.security import load_or_create_token, redact_sensitive_text
 from agentbridge.executors.opencode import _policy, _runtime_environment
 
 
@@ -45,3 +45,27 @@ def test_bridge_verification_environment_uses_same_secret_allowlist(
     filtered = filtered_bridge_environment()
     assert filtered["PATH"] == "/safe/bin"
     assert "AGENTBRIDGE_TEST_SECRET" not in filtered
+
+
+def test_bridge_output_redactor_removes_common_secret_shapes(monkeypatch) -> None:
+    monkeypatch.setenv("PROVIDER_API_KEY", "provider-secret-value-12345")
+    raw = (
+        "api=sk-abcdefghijklmnopqrst "
+        "google=AIza1234567890abcdefgh "
+        "github=ghp_1234567890abcdefghijkl "
+        "bearer=Bearer abcdefghijklmnopqrstuv "
+        "custom=provider-secret-value-12345"
+    )
+    redacted = redact_sensitive_text(raw)
+    assert "sk-abcdefghijklmnopqrst" not in redacted
+    assert "AIza1234567890abcdefgh" not in redacted
+    assert "ghp_1234567890abcdefghijkl" not in redacted
+    assert "Bearer abcdefghijklmnopqrstuv" not in redacted
+    assert "provider-secret-value-12345" not in redacted
+    assert redacted.count("<REDACTED_SECRET>") >= 5
+
+
+def test_bridge_output_redactor_keeps_nonsecret_text(monkeypatch) -> None:
+    monkeypatch.delenv("PROVIDER_API_KEY", raising=False)
+    raw = "build completed; artifact sha256=abc123; status=PASS"
+    assert redact_sensitive_text(raw) == raw
