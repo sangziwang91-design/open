@@ -185,6 +185,18 @@ try {
   await page.goto(`http://127.0.0.1:${port}/fixture`);
   const connect = page.locator('#agentbridge-controls button[data-action="arm"]');
   await connect.waitFor();
+
+  // A page script must not be able to arm the local executor by synthesizing a
+  // DOM click. The first connection requires a real browser user activation.
+  await page.evaluate(() => document.querySelector('#agentbridge-controls button[data-action="arm"]').click());
+  await page.waitForTimeout(300);
+  const blockedProgrammaticArm = await page.evaluate(() => ({
+    sentCount: window.sentMessages.length,
+    status: document.getElementById("agentbridge-status").textContent
+  }));
+  assert.equal(blockedProgrammaticArm.sentCount, 0);
+  assert.match(blockedProgrammaticArm.status, /用户本人点击/);
+
   await connect.click();
   await page.waitForFunction(() => Boolean(window.loopComplete), null, { timeout: 15000 });
 
