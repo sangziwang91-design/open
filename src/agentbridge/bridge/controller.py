@@ -13,8 +13,8 @@ from agentbridge.bridge.protocol import (
     BridgeCheck,
     BridgeResultMessage,
 )
-from agentbridge.bridge.store import BridgeStore, StoredBridgeJob
 from agentbridge.bridge.security import redact_sensitive_text
+from agentbridge.bridge.store import BridgeStore, StoredBridgeJob
 from agentbridge.domain.enums import ArtifactType, PermissionMode, TaskState
 from agentbridge.domain.runtime import TaskRuntime
 from agentbridge.domain.task import (
