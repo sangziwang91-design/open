@@ -72,8 +72,8 @@
     button.textContent = state.armed ? "断开 AgentBridge" : "连接 AgentBridge";
   }
 
-  async function toggleArm() {
-    if (!state.armed && navigator.userActivation && !navigator.userActivation.isActive) {
+  async function toggleArm(event) {
+    if (!state.armed && (!event || event.isTrusted !== true)) {
       setStatus("需要用户本人点击连接按钮", true);
       return;
     }
