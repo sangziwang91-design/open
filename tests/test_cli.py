@@ -117,7 +117,8 @@ def test_bridge_requires_explicit_no_sandbox_acknowledgement(tmp_path: Path) -> 
         ],
     )
     assert result.exit_code == 2
-    assert "verification commands" in result.output
-    assert "edit/delete" in result.output
-    assert "shell and network" in result.output
-    assert "not an OS sandbox" in result.output
+    lowered = result.output.lower()
+    assert "verification commands" in lowered
+    assert "edit/delete" in lowered
+    assert "shell and network" in lowered
+    assert "not an os sandbox" in lowered
