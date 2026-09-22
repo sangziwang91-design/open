@@ -1,9 +1,9 @@
 import os
-import secrets
 import re
+import secrets
 import stat
-from pathlib import Path
 from collections.abc import Mapping
+from pathlib import Path
 
 _SECRET_NAME = re.compile(r"(?:^|_)(?:API_?KEY|TOKEN|SECRET|PASSWORD|PASS|CREDENTIALS?)(?:_|$)", re.IGNORECASE)
 _SECRET_PATTERNS = (
