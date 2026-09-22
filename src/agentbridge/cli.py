@@ -85,7 +85,7 @@ def bridge(
         typer.Option(
             "--acknowledge-no-os-sandbox",
             help=(
-                "Required for OpenCode: acknowledge that this process is not an OS sandbox."
+                "Required for OpenCode: acknowledge no OS sandbox and that the selected workspace may be edited/deleted while shell and network effects are allowed."
             ),
         ),
     ] = False,
@@ -93,9 +93,11 @@ def bridge(
     """Run the authenticated loopback gateway used by the browser extension."""
     if not acknowledge_no_os_sandbox:
         typer.echo(
-            "Bridge startup requires --acknowledge-no-os-sandbox because both "
-            "OpenCode and task-declared verification commands can execute local "
-            "code. Use a disposable or version-controlled workspace.",
+            "Bridge startup requires --acknowledge-no-os-sandbox. For the OpenCode "
+            "executor this authorizes tool-level edit/delete effects inside the "
+            "selected workspace plus shell and network effects; this is not an OS "
+            "sandbox. Verification commands can also execute local code. Use a "
+            "disposable or version-controlled workspace with recoverable secrets.",
             err=True,
         )
         raise typer.Exit(2)
