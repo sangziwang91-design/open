@@ -32,7 +32,7 @@ import time
 from pathlib import Path
 
 if "--version" in sys.argv:
-    print("1.18.10")
+    print("1.18.11")
     raise SystemExit(0)
 if "--help" in sys.argv:
     print("--format --dir --agent --title")
@@ -133,19 +133,30 @@ def recover(database: Database, runtime: TaskRuntime) -> None:
         )
 
 
-def reload_task(
-    database: Database, task_id: str
-) -> tuple[TaskEnvelope, TaskRuntime]:
+def reload_task(database: Database, task_id: str) -> tuple[TaskEnvelope, TaskRuntime]:
     with database.connect() as conn:
         repo = AgentRepository(conn)
         return repo.get_envelope(task_id), repo.get_runtime(task_id)
 
 
 def process_is_active(pid: int) -> bool:
-    status_path = Path(f"/proc/{pid}/stat")
-    if not status_path.exists():
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
         return False
-    return status_path.read_text(encoding="utf-8").split()[2] != "Z"
+    except PermissionError:
+        return True
+    return True
+
+
+def process_stays_active(pid: int, settle_seconds: float = 2.0) -> bool:
+    """Allow SIGKILL delivery/re-parenting to settle before flagging a leak."""
+    deadline = time.monotonic() + settle_seconds
+    while time.monotonic() < deadline:
+        if not process_is_active(pid):
+            return False
+        time.sleep(0.02)
+    return process_is_active(pid)
 
 
 def run_validation(
@@ -161,9 +172,18 @@ def run_validation(
     workspace = root / "workspace"
     workspace.mkdir()
     markers = root / "markers"
-    shim = root / "opencode-shim"
-    shim.write_text(SHIM_SOURCE, encoding="utf-8")
-    shim.chmod(0o755)
+    if os.name == "nt":
+        shim_script = root / "opencode-shim.py"
+        shim_script.write_text(SHIM_SOURCE, encoding="utf-8")
+        shim = root / "opencode-shim.cmd"
+        shim.write_text(
+            f'@echo off\r\n"{sys.executable}" "{shim_script}" %*\r\n',
+            encoding="utf-8",
+        )
+    else:
+        shim = root / "opencode-shim"
+        shim.write_text(SHIM_SOURCE, encoding="utf-8")
+        shim.chmod(0o755)
     database_path = root / "agentbridge.db"
     database = Database(database_path)
     database.initialize()
@@ -190,15 +210,15 @@ def run_validation(
 
             should_timeout = timeout_every > 0 and index % timeout_every == 0
             should_fault = (
-                fault_every > 0
-                and index % fault_every == 0
-                and not should_timeout
+                fault_every > 0 and index % fault_every == 0 and not should_timeout
             )
             execution = ExecutionService(database, runs_dir)
             ok = execution.run(runtime, task, OpenCodeExecutor(str(shim)))
             if should_timeout or should_fault:
                 if ok or runtime.state != TaskState.RECOVERY_REQUIRED:
-                    raise AssertionError("Injected adapter failure did not require recovery")
+                    raise AssertionError(
+                        "Injected adapter failure did not require recovery"
+                    )
                 timeout_cycles += int(should_timeout)
                 fault_cycles += int(should_fault)
                 recover(database, runtime)
@@ -231,7 +251,9 @@ def run_validation(
                 bad_artifacts.append(artifact["artifact_id"])
         for row in runs:
             events = repo.list_events(row["task_id"])
-            prepared = [event for event in events if event.event_type == "ExecutorPrepared"]
+            prepared = [
+                event for event in events if event.event_type == "ExecutorPrepared"
+            ]
             if not prepared or any(
                 "policy_hash" not in event.payload
                 or "opencode_version" not in event.payload
@@ -256,17 +278,23 @@ def run_validation(
         foreign_key_errors = len(conn.execute("PRAGMA foreign_key_check").fetchall())
 
     active_children = []
-    if Path("/proc").is_dir() and markers.exists():
+    if os.name == "posix" and markers.exists():
         for path in markers.glob("child-*.pid"):
             pid = int(path.read_text(encoding="utf-8"))
-            if process_is_active(pid):
+            if process_stays_active(pid):
                 active_children.append(pid)
 
     expected_attempts = cycles + fault_cycles + timeout_cycles
     if completed != cycles or attempts != expected_attempts:
         raise AssertionError("Adapter completion or attempt counts are inconsistent")
     if unfinished_attempts or bad_artifacts or bad_policy_events or active_children:
-        raise AssertionError("Adapter soak invariants failed")
+        raise AssertionError(
+            "Adapter soak invariants failed: "
+            f"unfinished_attempts={unfinished_attempts}, "
+            f"bad_artifacts={bad_artifacts}, "
+            f"bad_policy_events={bad_policy_events}, "
+            f"active_children={active_children}"
+        )
     if timed_out_attempts != timeout_cycles or failed_attempts != fault_cycles:
         raise AssertionError("Injected failure status counts are inconsistent")
     if integrity != "ok" or foreign_key_errors:
@@ -289,7 +317,7 @@ def run_validation(
         "foreign_key_errors": foreign_key_errors,
         "duration_seconds": round(duration, 3),
         "cycles_per_second": round(cycles / duration, 3),
-        "opencode_contract_version": "1.18.10",
+        "opencode_contract_version": "1.18.11",
         "executor": "controlled-real-subprocess-shim",
     }
 

@@ -8,6 +8,7 @@ import signal
 
 # Subprocess use is the bounded adapter's declared purpose.
 import subprocess  # nosec B404
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -29,8 +30,25 @@ def _resolve_executable(executable: str) -> str:
     return str(Path(resolved).resolve())
 
 
-def _run_probe(command: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
-    environment = os.environ.copy()
+def _base_environment(
+    environment_allowlist: frozenset[str] | None,
+) -> dict[str, str]:
+    source = os.environ.copy()
+    if environment_allowlist is None:
+        return source
+    return {
+        key: value
+        for key, value in source.items()
+        if key.upper() in environment_allowlist
+    }
+
+
+def _run_probe(
+    command: list[str],
+    timeout: int,
+    environment_allowlist: frozenset[str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    environment = _base_environment(environment_allowlist)
     environment["OPENCODE_CONFIG_CONTENT"] = "{}"
     environment["OPENCODE_DISABLE_AUTOUPDATE"] = "1"
     environment["OPENCODE_DISABLE_SHARE"] = "1"
@@ -52,10 +70,16 @@ def _run_probe(command: list[str], timeout: int) -> subprocess.CompletedProcess[
         raise ExecutorUnavailableError(f"OpenCode probe failed: {exc}") from exc
 
 
-def probe_opencode(executable: str = "opencode", timeout: int = 10) -> dict[str, str]:
+def probe_opencode(
+    executable: str = "opencode",
+    timeout: int = 10,
+    environment_allowlist: frozenset[str] | None = None,
+) -> dict[str, str]:
     """Resolve OpenCode and verify the CLI contract used by this adapter."""
     resolved = _resolve_executable(executable)
-    version_result = _run_probe([resolved, "--pure", "--version"], timeout)
+    version_result = _run_probe(
+        [resolved, "--pure", "--version"], timeout, environment_allowlist
+    )
     version_output = (version_result.stdout or version_result.stderr).strip()
     if version_result.returncode != 0:
         detail = version_output[:240] or "no diagnostic output"
@@ -74,7 +98,9 @@ def probe_opencode(executable: str = "opencode", timeout: int = 10) -> dict[str,
             f"OpenCode {match.group(0)} is too old; version {required}+ is required"
         )
 
-    help_result = _run_probe([resolved, "--pure", "run", "--help"], timeout)
+    help_result = _run_probe(
+        [resolved, "--pure", "run", "--help"], timeout, environment_allowlist
+    )
     help_output = f"{help_result.stdout}\n{help_result.stderr}"
     missing = [flag for flag in REQUIRED_RUN_FLAGS if flag not in help_output]
     if help_result.returncode != 0 or missing:
@@ -114,9 +140,20 @@ def _policy() -> dict[str, Any]:
     }
 
 
-def _runtime_environment(policy: dict[str, Any]) -> dict[str, str]:
-    environment = os.environ.copy()
-    existing_text = environment.get("OPENCODE_CONFIG_CONTENT", "").strip()
+def _runtime_environment(
+    policy: dict[str, Any], environment_allowlist: frozenset[str] | None = None
+) -> dict[str, str]:
+    source_environment = os.environ.copy()
+    environment = _base_environment(environment_allowlist)
+    keep_inline_config = (
+        environment_allowlist is None
+        or "OPENCODE_CONFIG_CONTENT" in environment_allowlist
+    )
+    existing_text = (
+        source_environment.get("OPENCODE_CONFIG_CONTENT", "").strip()
+        if keep_inline_config
+        else ""
+    )
     if existing_text:
         try:
             config = json.loads(existing_text)
@@ -162,15 +199,44 @@ def _validate_scope(envelope: TaskEnvelope) -> None:
         )
 
 
+def _windows_taskkill(pid: int) -> None:
+    system_root = os.environ.get("SystemRoot") or os.environ.get("WINDIR")
+    candidate = Path(system_root) / "System32" / "taskkill.exe" if system_root else None
+    executable = (
+        str(candidate.resolve())
+        if candidate is not None and candidate.is_file()
+        else shutil.which("taskkill")
+    )
+    if executable is None:
+        raise OSError("taskkill.exe was not found")
+    # Fixed system executable and numeric PID; no user-controlled shell text.
+    subprocess.run(  # nosec B603
+        [executable, "/PID", str(pid), "/T", "/F"],
+        check=False,
+        capture_output=True,
+        timeout=10,
+    )
+
+
 class OpenCodeExecutor(Executor):
     executor_id = "opencode"
     # OpenCode's edit and shell tools can delete files, and shell commands can use
     # the network. Refuse to launch unless all effects are explicitly authorized.
     required_permissions = ("file_write", "delete", "network", "shell")
 
-    def __init__(self, executable: str = "opencode", probe_timeout: int = 10) -> None:
+    def __init__(
+        self,
+        executable: str = "opencode",
+        probe_timeout: int = 10,
+        environment_allowlist: Iterable[str] | None = None,
+    ) -> None:
         self.executable = executable
         self.probe_timeout = probe_timeout
+        self.environment_allowlist = (
+            frozenset(value.upper() for value in environment_allowlist)
+            if environment_allowlist is not None
+            else None
+        )
         self.process: subprocess.Popen[str] | None = None
         self.stdout_file: TextIO | None = None
         self.stderr_file: TextIO | None = None
@@ -179,8 +245,12 @@ class OpenCodeExecutor(Executor):
     def prepare(self, envelope: TaskEnvelope, run_dir: Path) -> dict[str, Any]:
         _validate_scope(envelope)
         policy = _policy()
-        environment = _runtime_environment(policy)
-        probe = probe_opencode(self.executable, self.probe_timeout)
+        environment = _runtime_environment(policy, self.environment_allowlist)
+        probe = probe_opencode(
+            self.executable,
+            self.probe_timeout,
+            self.environment_allowlist,
+        )
         run_dir.mkdir(parents=True, exist_ok=True)
         workspace_path = Path(envelope.target.workspace).resolve()
         if not workspace_path.is_dir():
@@ -293,6 +363,11 @@ class OpenCodeExecutor(Executor):
             try:
                 if os.name == "posix":
                     os.killpg(self.process.pid, signal.SIGKILL)
+                elif os.name == "nt":
+                    try:
+                        _windows_taskkill(self.process.pid)
+                    except (OSError, subprocess.TimeoutExpired):
+                        self.process.kill()
                 else:
                     self.process.kill()
             except ProcessLookupError:

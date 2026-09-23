@@ -1,0 +1,19 @@
+{
+  "active_child_processes": 0,
+  "artifact_integrity_failures": 0,
+  "artifacts": 1302,
+  "attempts": 217,
+  "cycles": 200,
+  "cycles_per_second": 7.425,
+  "duration_seconds": 26.937,
+  "executor": "controlled-real-subprocess-shim",
+  "fault_cycles": 11,
+  "foreign_key_errors": 0,
+  "opencode_contract_version": "1.18.11",
+  "policy_event_failures": 0,
+  "restarts": 10,
+  "sqlite_integrity": "ok",
+  "status": "PASS",
+  "timeout_cycles": 6,
+  "unfinished_attempts": 0
+}

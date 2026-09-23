@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgentBridge 设置</title>
+  <style>
+    body{margin:0;background:#f3f4f6;color:#111827;font:15px/1.5 system-ui}main{max-width:680px;margin:48px auto;background:white;border-radius:16px;padding:28px;box-shadow:0 12px 36px #0001}h1{margin-top:0}label{display:block;font-weight:650;margin-top:18px}input[type="text"],input[type="password"],input[type="number"]{box-sizing:border-box;width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;margin-top:6px}small{display:block;color:#4b5563;margin-top:4px}.row{display:grid;grid-template-columns:1fr 1fr;gap:16px}.check{font-weight:500}button{margin-top:24px;background:#10a37f;color:white;border:0;border-radius:9px;padding:10px 16px;font-weight:700;cursor:pointer}#status{margin-left:12px}
+  </style>
+</head>
+<body>
+<main>
+  <h1>AgentBridge Chat Loop</h1>
+  <p>令牌只保存在此设备的浏览器扩展本地存储中，不同步，也不会暴露给 ChatGPT 页面脚本。</p>
+  <form id="settings">
+    <label>本地网关地址<input id="gatewayUrl" type="text" required value="http://127.0.0.1:8765"></label>
+    <small>仅接受 HTTP 回环地址。</small>
+    <label>桥接令牌<input id="token" type="password" required minlength="32" autocomplete="off"></label>
+    <small>Windows PowerShell：<code>Get-Content .agentbridge\bridge.token</code></small>
+    <div class="row">
+      <label>最大自动轮数<input id="maxSteps" type="number" min="1" max="100" required></label>
+      <label>轮询间隔（毫秒）<input id="pollMilliseconds" type="number" min="250" max="10000" required></label>
+    </div>
+    <label>单任务等待上限（秒）<input id="jobTimeoutSeconds" type="number" min="10" max="3600" required></label>
+    <label class="check"><input id="autoSend" type="checkbox"> 自动发送网关结果回 ChatGPT</label>
+    <button type="submit">保存并检查连接</button><span id="status" role="status"></span>
+  </form>
+  <script src="bridge-core.js"></script>
+  <script src="options.js"></script>
+</main>
+</body>
+</html>

@@ -1,5 +1,7 @@
 import sqlite3
 from pathlib import Path
+from types import TracebackType
+from typing import Literal
 
 SCHEMA_SQL = """
 PRAGMA foreign_keys = ON;
@@ -78,7 +80,46 @@ CREATE TABLE IF NOT EXISTS capability_snapshots (
     environment_json TEXT NOT NULL,
     detected_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS bridge_sessions (
+    session_id TEXT PRIMARY KEY,
+    last_request_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS bridge_jobs (
+    job_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    request_id TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    request_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    task_id TEXT,
+    run_id TEXT,
+    result_json TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (session_id, request_id),
+    FOREIGN KEY (session_id) REFERENCES bridge_sessions(session_id)
+);
+CREATE INDEX IF NOT EXISTS idx_bridge_jobs_status_created
+    ON bridge_jobs(status, created_at);
 """
+
+
+class ClosingConnection(sqlite3.Connection):
+    """Commit or roll back and then release the file handle on context exit."""
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> Literal[False]:
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
 
 
 class Database:
@@ -87,7 +128,7 @@ class Database:
 
     def connect(self) -> sqlite3.Connection:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(self.path)
+        conn = sqlite3.connect(self.path, factory=ClosingConnection)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA busy_timeout = 5000")

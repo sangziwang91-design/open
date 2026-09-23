@@ -1,4 +1,6 @@
+import os
 import shlex
+import subprocess
 import sys
 from pathlib import Path
 
@@ -60,16 +62,17 @@ def test_command_verification_logs_are_immutable_across_retries(
 ) -> None:
     task, runtime = prepared(database)
     task.target.workspace = str(tmp_path)
-    command = shlex.join(
-        [
-            sys.executable,
-            "-c",
-            (
-                "from pathlib import Path; "
-                "p=Path('sentinel'); print(p.exists()); "
-                "raise SystemExit(0 if p.exists() else 1)"
-            ),
-        ]
+    arguments = [
+        sys.executable,
+        "-c",
+        (
+            "from pathlib import Path; "
+            "p=Path('sentinel'); print(p.exists()); "
+            "raise SystemExit(0 if p.exists() else 1)"
+        ),
+    ]
+    command = (
+        subprocess.list2cmdline(arguments) if os.name == "nt" else shlex.join(arguments)
     )
     task.acceptance[0] = task.acceptance[0].model_copy(update={"command": command})
     service = ExecutionService(database, tmp_path / "runs")
