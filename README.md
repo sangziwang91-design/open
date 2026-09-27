@@ -151,6 +151,7 @@ ruff check src tests scripts
 mypy src tests
 bandit -q -r src
 npm ci
+npm audit --audit-level=high
 npm test
 python scripts/package_extension.py
 python scripts/bridge_soak.py --cycles 100 --restart-every 20
