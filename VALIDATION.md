@@ -50,3 +50,26 @@ The browser harness loads the actual unpacked extension in Chromium and drives a
 ## General claim boundary
 
 These checks establish a bounded, evidence-gated Windows-web bridge implementation and repeatable controlled execution chain. They do not establish an operating-system sandbox, universal correctness, native-app automation, provider/model effectiveness, future ChatGPT DOM compatibility, or token-free OpenCode execution. The bridge reduces planning-token demand by using the web Chat as the brain; OpenCode execution can still consume provider tokens.
+
+
+## 2026-09-27 current compatibility and security refresh
+
+Checked candidate head before this documentation update: `acbc01949fa9e4a39a2450a3af1fa3308b4bf3f0`.
+
+GitHub Actions pull-request run `36325701671` completed with all four jobs **PASS**:
+
+- Python 3.12: tests, Ruff, mypy, Bandit, distribution build, extension core tests, extension package and bridge persistence soak;
+- Python 3.13: tests, Ruff, mypy and Bandit;
+- Windows bridge and OpenCode contract: full Windows suite, extension core, packaging, bridge soak, install of pinned `opencode-ai@1.18.31`, and real CLI contract probe;
+- Chromium extension closed loop: clean `npm ci`, blocking `npm audit --audit-level=high`, pinned Chrome-for-Testing install, and unpacked-extension closed-loop fixture.
+
+The push run `36325697618` also completed **PASS**.
+
+This refresh additionally verifies two browser-boundary hardenings:
+
+1. Local result text now passes through common credential/token redaction in addition to workspace-path redaction before automatic ChatGPT writeback. Regression tests cover common API-key, GitHub-token, Bearer-token and operator-environment secret shapes.
+2. The first **连接 AgentBridge** arm requires a trusted browser click; a page script's synthetic `.click()` cannot silently arm the local executor. The controlled Chromium gate covers the rejection and the subsequent trusted-click closed loop.
+
+The browser-harness lock resolves from the public npm registry, and the current CI treats high-severity npm audit findings as a failing gate.
+
+These checks still do **not** establish a logged-in owner-host `chatgpt.com` DOM acceptance, credentialed model execution quality, native-app support, or an operating-system sandbox. Those remain outside the automated claim ceiling.
