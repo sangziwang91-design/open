@@ -132,6 +132,9 @@ jobs:
       - name: Install browser harness
         run: npm ci
 
+      - name: Audit browser harness dependencies
+        run: npm audit --audit-level=high
+
       - name: Install pinned Chrome for Testing
         shell: bash
         run: |
