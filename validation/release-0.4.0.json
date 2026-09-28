@@ -1,11 +1,12 @@
 {
   "package": "sz-agentbridge",
   "version": "0.4.0",
-  "validated_implementation_commit": "664c86e606d6a6807284c46b7d6b2899de92416a",
+  "evidence_updated_at": "2026-09-27",
+  "validated_candidate_head": "835cb3ad33028c18e29d669e0b6dad5361b97b59",
   "quality_gates": {
     "pytest": {
       "status": "PASS",
-      "tests": 97,
+      "tests": 99,
       "platforms": [
         "linux-python-3.12",
         "linux-python-3.13",
@@ -15,11 +16,9 @@
     "ruff": "PASS",
     "mypy": {
       "status": "PASS",
-      "checked_files": 73,
       "scope": "src tests"
     },
     "bandit": "PASS",
-    "compileall": "PASS",
     "browser_core_tests": {
       "status": "PASS",
       "tests": 11
@@ -31,16 +30,15 @@
   },
   "github_actions": {
     "status": "PASS",
-    "run_id": 30751492180,
-    "run_number": 16,
-    "run_url": "https://github.com/sangziwang91-design/open/actions/runs/30751492180",
+    "pull_request_run_id": 36326143376,
+    "push_run_id": 36326140072,
     "python_3_12": "PASS",
     "python_3_13": "PASS",
     "windows_bridge_and_opencode_contract": "PASS",
     "chromium_extension_closed_loop": "PASS"
   },
   "windows": {
-    "pytest": 97,
+    "pytest": 99,
     "bridge_soak": {
       "completed": 50,
       "cycles": 50,
@@ -49,9 +47,9 @@
       "status": "PASS"
     },
     "opencode": {
-      "package": "opencode-ai@1.18.11",
+      "package": "opencode-ai@1.18.31",
       "doctor_status": "READY",
-      "reported_version": "1.18.11"
+      "reported_version": "1.18.31"
     }
   },
   "browser": {
@@ -59,15 +57,18 @@
     "browser": "Google Chrome for Testing 151.0.7922.34",
     "fixture": "controlled ChatGPT-shaped DOM",
     "extension": "unpacked Manifest V3",
-    "automatic_writeback_steps": 1
+    "automatic_writeback_steps": 1,
+    "trusted_arm_boundary": "PASS",
+    "credential_redaction_regressions": "PASS"
   },
   "long_run": {
+    "status": "PASS_HISTORICAL_STRESS_EVIDENCE",
+    "note": "Retained from earlier 0.4.0 stress runs; not rerun by the 2026-09-27 compatibility refresh.",
     "bridge_cycles": 1000,
     "core_cycles": 3000,
     "opencode_adapter_cycles": 200,
     "sqlite_integrity": "ok",
-    "foreign_key_errors": 0,
-    "status": "PASS"
+    "foreign_key_errors": 0
   },
   "claim_boundaries": {
     "live_logged_in_chatgpt": "OWNER_ACCEPTANCE_REQUIRED",
