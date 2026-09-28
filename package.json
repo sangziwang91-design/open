@@ -1,0 +1,13 @@
+{
+  "name": "sz-agentbridge-validation",
+  "private": true,
+  "version": "0.4.0",
+  "description": "Browser-extension validation harness for SZ-AgentBridge",
+  "scripts": {
+    "test": "node --test extension/tests/core.test.js extension/tests/adapter.test.js",
+    "test:browser": "node extension/tests/browser-smoke.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}

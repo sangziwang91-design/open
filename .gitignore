@@ -18,4 +18,6 @@ data/
 dist/
 final_artifacts_*/
 htmlcov/
+node_modules/
 sz-agentbridge.zip
+.agentbridge/
