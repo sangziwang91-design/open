@@ -90,7 +90,11 @@ def prepare_wls_task(
     result_path = (directory / check_file).resolve()
     if directory not in result_path.parents:
         raise ValueError("acceptance file escapes workspace")
-    if executor == "opencode" and result_path.exists():
+    if (
+        executor == "opencode"
+        and result_path.exists()
+        and not output.expanduser().resolve().is_file()
+    ):
         raise ValueError("acceptance file already exists; choose a fresh output to prove work")
     title = str(wls["payload"]["title"])
     # OpenCode's edit/shell permission categories are inseparable, hence
