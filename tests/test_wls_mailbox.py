@@ -9,7 +9,7 @@ from typer.testing import CliRunner
 
 from agentbridge.cli import app
 from agentbridge.wls_mailbox import (
-    _digest, _task_id, prepare_wls_task, read_wls_task, reply_to_wls,
+    _digest,\n    _task_id,\n    prepare_wls_task,\n    read_wls_task,\n    reply_to_wls,
 )
 
 runner = CliRunner()
