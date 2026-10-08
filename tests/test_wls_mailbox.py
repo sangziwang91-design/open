@@ -381,3 +381,41 @@ def test_wls_cycle_failed_independent_command_never_claims_success(tmp_path, wls
     by_id = {c["check_id"]: c["status"] for c in reply["payload"]["verified_checks"]}
     assert by_id["WLS_FILE_1"] == "PASS"
     assert by_id["WLS_COMMAND_1"] == "FAIL"
+
+
+def test_reject_symlinked_wls_task_directory_even_if_file_is_regular(tmp_path, wls_task):
+    mailbox, task, _ = wls_task
+    real_tasks = mailbox / "real-tasks"
+    (mailbox / "tasks").rename(real_tasks)
+    (mailbox / "tasks").symlink_to(real_tasks, target_is_directory=True)
+    with pytest.raises(ValueError, match="directory is symlinked"):
+        read_wls_task(mailbox, task["message_id"])
+
+
+def test_reject_symlinked_wls_result_directory(tmp_path, wls_task):
+    mailbox, task, _ = wls_task
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "checked.txt").write_text("proof", encoding="utf-8")
+    db = tmp_path / "bridge.db"
+    contract = tmp_path / "request.json"
+    prepared = prepare_wls_task(
+        mailbox_root=mailbox, message_id=task["message_id"],
+        workspace=workspace, output=contract,
+        check_file="checked.txt", executor="fake",
+    )
+    assert runner.invoke(app, ["submit", str(contract), "--db", str(db)]).exit_code == 0
+    assert runner.invoke(app, [
+        "run", prepared["task_id"], "--executor", "fake",
+        "--db", str(db), "--runs-dir", str(tmp_path / "runs"),
+    ]).exit_code == 0
+    assert runner.invoke(app, [
+        "verify", prepared["task_id"], "--db", str(db),
+        "--runs-dir", str(tmp_path / "runs"),
+    ]).exit_code == 0
+    target = tmp_path / "elsewhere"
+    target.mkdir()
+    (mailbox / "results").symlink_to(target, target_is_directory=True)
+    with pytest.raises(ValueError, match="directory is symlinked"):
+        reply_to_wls(mailbox_root=mailbox, message_id=task["message_id"], db_path=db)
+    assert list(target.iterdir()) == []
