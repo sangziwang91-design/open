@@ -70,6 +70,9 @@ def wls_prepare(
     workspace: Annotated[Path, typer.Option("--workspace")],
     output: Annotated[Path, typer.Option("--output")],
     check_file: Annotated[str, typer.Option("--check-file")],
+    verify_command: Annotated[
+        str | None, typer.Option("--verify-command")
+    ] = None,
     executor: Annotated[ExecutorName, typer.Option("--executor")] = ExecutorName.FAKE,
 ) -> None:
     """Translate an existing WLS leased task into an AgentBridge task file.
@@ -83,6 +86,7 @@ def wls_prepare(
         output=output,
         check_file=check_file,
         executor=executor.value,
+        verify_command=verify_command,
     )
     typer.echo(yaml.safe_dump(result, sort_keys=False))
 
@@ -106,6 +110,9 @@ def wls_cycle(
     mailbox_root: Annotated[Path, typer.Option("--mailbox-root")],
     workspace: Annotated[Path, typer.Option("--workspace")],
     check_file: Annotated[str, typer.Option("--check-file")],
+    verify_command: Annotated[
+        str | None, typer.Option("--verify-command")
+    ] = None,
     db: Annotated[Path, typer.Option("--db")] = Path("agentbridge.db"),
     runs_dir: Annotated[Path, typer.Option("--runs-dir")] = Path("data/runs"),
     executor: Annotated[ExecutorName, typer.Option("--executor")] = ExecutorName.FAKE,
@@ -132,6 +139,7 @@ def wls_cycle(
         output=task_file,
         check_file=check_file,
         executor=executor.value,
+        verify_command=verify_command,
     )
     # Repeated calls resume from the canonical AgentBridge SQLite state;
     # they must never blindly resubmit a task or re-run a completed worker.
@@ -147,9 +155,13 @@ def wls_cycle(
         or envelope.source.conversation_ref != message_id
         or envelope.target.executor_id != executor.value
         or Path(envelope.target.workspace).resolve() != workspace.resolve()
-        or len(envelope.acceptance) != 1
+        or len(envelope.acceptance) != (2 if verify_command else 1)
         or envelope.acceptance[0].type != "fileexists"
         or envelope.acceptance[0].path != check_file
+        or (verify_command is not None and (
+            envelope.acceptance[1].type != "command"
+            or envelope.acceptance[1].command != verify_command
+        ))
     ):
         typer.echo("Persisted WLS task does not match this execution request", err=True)
         raise typer.Exit(2)
