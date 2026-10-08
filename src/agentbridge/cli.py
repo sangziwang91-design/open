@@ -25,6 +25,7 @@ from agentbridge.services.execution_service import ExecutionService
 from agentbridge.services.feedback_service import FeedbackService
 from agentbridge.services.state_manager import StateManager
 from agentbridge.services.verification_service import VerificationService
+from agentbridge.wls_mailbox import prepare_wls_task, reply_to_wls
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -60,6 +61,43 @@ def main(
     if version:
         typer.echo(__version__)
         raise typer.Exit()
+
+
+@app.command("wls-prepare")
+def wls_prepare(
+    message_id: Annotated[str, typer.Argument(help="WLS mailbox message ID")],
+    mailbox_root: Annotated[Path, typer.Option("--mailbox-root")],
+    workspace: Annotated[Path, typer.Option("--workspace")],
+    output: Annotated[Path, typer.Option("--output")],
+    check_file: Annotated[str, typer.Option("--check-file")],
+    executor: Annotated[ExecutorName, typer.Option("--executor")] = ExecutorName.FAKE,
+) -> None:
+    """Translate an existing WLS leased task into an AgentBridge task file.
+
+    Does not submit, execute, merge, spend model quota, or authorize a worker.
+    """
+    result = prepare_wls_task(
+        mailbox_root=mailbox_root,
+        message_id=message_id,
+        workspace=workspace,
+        output=output,
+        check_file=check_file,
+        executor=executor.value,
+    )
+    typer.echo(yaml.safe_dump(result, sort_keys=False))
+
+
+@app.command("wls-reply")
+def wls_reply(
+    message_id: Annotated[str, typer.Argument(help="Original WLS task message ID")],
+    mailbox_root: Annotated[Path, typer.Option("--mailbox-root")],
+    db: Annotated[Path, typer.Option("--db")] = Path("agentbridge.db"),
+) -> None:
+    """Return a WLS result only from a persisted, independently checked run."""
+    result = reply_to_wls(
+        mailbox_root=mailbox_root, message_id=message_id, db_path=db,
+    )
+    typer.echo(yaml.safe_dump(result, sort_keys=False))
 
 
 @app.command("init")
