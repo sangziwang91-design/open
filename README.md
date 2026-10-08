@@ -114,6 +114,27 @@ agentbridge wls-cycle MESSAGE_ID \
   --executor fake
 ```
 
+For real coding tasks, file existence is not enough. Pass an explicit,
+owner-controlled independent verification command as an additional hard check;
+both the output file and the command's exit status must pass before WLS can
+accept the result:
+
+```sh
+agentbridge wls-cycle MESSAGE_ID \
+  --mailbox-root ./shared-mailbox \
+  --workspace ./candidate-worktree \
+  --check-file expected-result.txt \
+  --verify-command "python -m pytest -q" \
+  --db ./agentbridge.db --runs-dir ./runs \
+  --executor opencode --allow-model-usage
+```
+
+The test command runs in the selected workspace. Supply it only from the
+trusted owner/task configuration, never from untrusted model-proposed text.
+Changing verification conditions for an existing task is rejected; re-running
+an already completed task will return its persisted result rather than invoke
+OpenCode twice. A failing independent test produces FAILED feedback.
+
 To use the actual OpenCode worker, explicitly select `--executor opencode
 --allow-model-usage` after provider authentication. It may consume paid or
 metered model usage and has workspace side-effect permissions; neither the
