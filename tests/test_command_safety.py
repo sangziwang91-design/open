@@ -5,7 +5,10 @@ from pathlib import Path
 
 from agentbridge.domain.enums import FailureCategory, PermissionMode, VerificationStatus
 from agentbridge.domain.task import AcceptanceItem, Permissions
-from agentbridge.verification.command_verifier import CommandVerifier
+from agentbridge.verification.command_verifier import (
+    CommandVerifier,
+    split_verification_argv,
+)
 
 
 def run(command: str, workspace: Path, *, shell: PermissionMode = PermissionMode.ALLOW):
@@ -41,3 +44,20 @@ def test_invalid_command_quoting_is_input_failure(tmp_path: Path) -> None:
     result = run("'unterminated", tmp_path)
     assert result.status == VerificationStatus.FAIL
     assert result.failure_category == FailureCategory.INPUT
+
+
+def test_windows_quoted_hidden_test_path_is_not_passed_with_literal_quotes() -> None:
+    command = 'python -m pytest -q "C:\\Users\\runner admin\\frozen-tests\\test_logic.py"'
+    assert split_verification_argv(command, windows=True) == [
+        "python", "-m", "pytest", "-q",
+        "C:\\Users\\runner admin\\frozen-tests\\test_logic.py",
+    ]
+    assert split_verification_argv('python -m pytest -q tests/test_logic.py', windows=True) == [
+        "python", "-m", "pytest", "-q", "tests/test_logic.py",
+    ]
+
+
+def test_posix_quoted_hidden_test_path_is_preserved_without_quote_chars() -> None:
+    assert split_verification_argv('python -m pytest -q "/tmp/frozen tests/test.py"', windows=False) == [
+        "python", "-m", "pytest", "-q", "/tmp/frozen tests/test.py",
+    ]

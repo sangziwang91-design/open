@@ -15,6 +15,25 @@ from agentbridge.verification.base import Verifier
 SHELL_MARKERS = ("|", "&&", "||", ">", "<", ";", "\n")
 
 
+def split_verification_argv(text: str, *, windows: bool) -> list[str]:
+    """Split a trusted acceptance command without leaving quote marks in argv.
+
+    Unlike POSIX shlex, non-POSIX shlex preserves enclosing double quotes.
+    Passing them through subprocess(list, shell=False) makes pytest receive
+    a literal quoted Windows path and report exit code 4 (usage error).
+    Only whole-argument enclosing quotes are removed; no shell is involved.
+    """
+    args = shlex.split(text, posix=not windows)
+    if windows:
+        return [
+            item[1:-1]
+            if len(item) >= 2 and item.startswith('"') and item.endswith('"')
+            else item
+            for item in args
+        ]
+    return args
+
+
 class CommandVerifier(Verifier):
     verifier_id = "command"
 
@@ -70,7 +89,7 @@ class CommandVerifier(Verifier):
                 else:
                     command = [shutil.which("sh") or "/bin/sh", "-c", item.command]
             else:
-                command = shlex.split(item.command, posix=os.name != "nt")
+                command = split_verification_argv(item.command, windows=os.name == "nt")
         except ValueError as exc:
             return VerificationResult(
                 check_id=item.id,
