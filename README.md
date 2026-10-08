@@ -102,7 +102,25 @@ copy that preserves the JSON files); a GitHub repository by itself is not
 a shared running process or a live messaging service.
 
 Given WLS's `message_id` from the export receipt and a disposable or
-owner-approved workspace, the handoff is:
+owner-approved workspace, the **single-command** local path uses the existing
+submission, executor, verification, and WLS reply functions:
+
+```sh
+agentbridge wls-cycle MESSAGE_ID \
+  --mailbox-root ./shared-mailbox \
+  --workspace ./candidate-worktree \
+  --check-file expected-result.txt \
+  --db ./agentbridge.db --runs-dir ./runs \
+  --executor fake
+```
+
+To use the actual OpenCode worker, explicitly select `--executor opencode
+--allow-model-usage` after provider authentication. It may consume paid or
+metered model usage and has workspace side-effect permissions; neither the
+ChatGPT chat interface nor GitHub source-control access substitutes for
+OpenCode authentication.
+
+The same steps remain available **individually** for diagnosis or recovery:
 
 ```sh
 agentbridge wls-prepare MESSAGE_ID \
