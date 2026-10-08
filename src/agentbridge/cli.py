@@ -133,19 +133,56 @@ def wls_cycle(
         check_file=check_file,
         executor=executor.value,
     )
-    # These are the existing verified CLI paths, not a new worker/retry loop.
-    submit(task_file, db=db)
+    # Repeated calls resume from the canonical AgentBridge SQLite state;
+    # they must never blindly resubmit a task or re-run a completed worker.
+    database = _database(db)
     try:
-        run(
-            created["task_id"], executor=executor, db=db,
-            runs_dir=runs_dir, opencode_executable=opencode_executable,
-        )
-        verify(created["task_id"], db=db, runs_dir=runs_dir)
-    finally:
-        # A failed/blocked attempt must reach WLS as FAILED rather than
-        # leaving the graph node hanging until lease expiry. If the run is
-        # truly interrupted, reply_to_wls refuses to invent a terminal state.
+        envelope, current = _load(database, created["task_id"])
+    except TaskNotFoundError:
+        submit(task_file, db=db)
+        envelope, current = _load(database, created["task_id"])
+
+    if (
+        envelope.source.adapter != "wls_mailbox"
+        or envelope.source.conversation_ref != message_id
+        or envelope.target.executor_id != executor.value
+        or Path(envelope.target.workspace).resolve() != workspace.resolve()
+        or len(envelope.acceptance) != 1
+        or envelope.acceptance[0].type != "fileexists"
+        or envelope.acceptance[0].path != check_file
+    ):
+        typer.echo("Persisted WLS task does not match this execution request", err=True)
+        raise typer.Exit(2)
+
+    if current.state == TaskState.READY:
+        try:
+            run(
+                created["task_id"], executor=executor, db=db,
+                runs_dir=runs_dir, opencode_executable=opencode_executable,
+            )
+            verify(created["task_id"], db=db, runs_dir=runs_dir)
+        finally:
+            # Including verified failures: WLS must never wait indefinitely.
+            wls_reply(message_id, mailbox_root=mailbox_root, db=db)
+    elif current.state == TaskState.WAITING_VERIFICATION:
+        try:
+            verify(created["task_id"], db=db, runs_dir=runs_dir)
+        finally:
+            wls_reply(message_id, mailbox_root=mailbox_root, db=db)
+    elif current.state in {
+        TaskState.COMPLETED, TaskState.BLOCKED,
+        TaskState.RECOVERY_REQUIRED, TaskState.REPAIR_READY,
+        TaskState.ACCEPTANCE_FAILED,
+    }:
+        # Completed tasks are NEVER executed twice. Ambiguous crashed
+        # processes are not automatically retried; return recorded failure.
         wls_reply(message_id, mailbox_root=mailbox_root, db=db)
+    else:
+        typer.echo(
+            f"Task state {current.state.value} requires explicit operator recovery",
+            err=True,
+        )
+        raise typer.Exit(2)
 
 
 @app.command("init")
