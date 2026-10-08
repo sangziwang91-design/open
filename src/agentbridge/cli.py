@@ -155,6 +155,13 @@ def wls_cycle(
         raise typer.Exit(2)
 
     if current.state == TaskState.READY:
+        # A persisted contract may have been prepared before another process
+        # wrote the target. Refuse to mistake an existing file for worker work.
+        if executor == ExecutorName.OPENCODE and (
+            workspace.resolve() / check_file
+        ).exists():
+            typer.echo("Acceptance file already exists before worker start", err=True)
+            raise typer.Exit(2)
         try:
             run(
                 created["task_id"], executor=executor, db=db,
