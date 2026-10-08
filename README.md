@@ -84,3 +84,60 @@ python scripts/opencode_adapter_soak.py --cycles 100
 ```
 
 The latest bounded evidence and exact claim boundary are recorded in `VALIDATION.md` and `validation/`.
+
+
+## WLS ↔ AgentBridge: reuse the existing mailbox instead of a second agent
+
+The `wls-prepare` and `wls-reply` commands connect **one already-leased
+WLS AgenticHarness node** to this project's existing SQLite-backed executor.
+They do not implement ChatGPT browser/UI automation, a provider quota bypass,
+or unattended reasoning from a free ChatGPT conversation.
+
+The WLS runtime first exports a task via its existing
+`AgenticHarness.export_node_task_envelope(graph_id, node_id,
+lease_id=..., mailbox_root=..., recipient="agentbridge")` method.
+The runtime must already hold an ACTIVE node lease. Both packages must
+see the **same local mailbox directory** (or an explicitly synchronized
+copy that preserves the JSON files); a GitHub repository by itself is not
+a shared running process or a live messaging service.
+
+Given WLS's `message_id` from the export receipt and a disposable or
+owner-approved workspace, the handoff is:
+
+```sh
+agentbridge wls-prepare MESSAGE_ID \
+  --mailbox-root ./shared-mailbox \
+  --workspace ./candidate-worktree \
+  --check-file expected-result.txt \
+  --output ./wls-task.json \
+  --executor fake
+
+agentbridge submit ./wls-task.json --db ./agentbridge.db
+agentbridge run WLS-TASK-ID --executor fake --db ./agentbridge.db --runs-dir ./runs
+agentbridge verify WLS-TASK-ID --db ./agentbridge.db --runs-dir ./runs
+agentbridge wls-reply MESSAGE_ID --mailbox-root ./shared-mailbox --db ./agentbridge.db
+```
+
+The `WLS-TASK-ID` is printed by `wls-prepare` and `submit`. Replace the
+`fake` executor with **`opencode` only in an authorized workspace with a
+configured provider and appropriate permissions**. OpenCode may incur
+provider charges. Acceptance for the first bridge version is a single
+**file-exists** check; do not treat that as proof of broad code quality.
+WLS must still independently apply its own acceptance tests when importing
+the result.
+
+The response is written as a native WLS `ResultEnvelope` to
+`shared-mailbox/results/`, including `in_reply_to`, graph/node/lease IDs,
+the lease fencing token, strict SHA-256 payload digest, and only persisted
+AgentBridge verifier outcomes. WLS can import it using its existing
+`AgenticHarness.import_node_result_envelope(...)` method. A submitted,
+running or unverified task cannot generate a success reply; retries with
+the same identifiers are idempotent. WLS remains the only authority for
+completing its graph node.
+
+**Current operational limit:** local file transport has been connected and
+tested; GitHub Actions cannot automatically invoke a private ChatGPT
+conversation as an inference engine. A completely unattended loop requires
+a separately authenticated, explicitly authorized model/worker process.
+Use ChatGPT for interactive task decisions and GitHub for source changes,
+PR reviews and CI receipts without pretending the chat is an API.
