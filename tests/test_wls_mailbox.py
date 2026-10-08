@@ -157,3 +157,40 @@ def test_prepare_does_not_start_model_or_executor(tmp_path, wls_task):
         mailbox_root=mailbox, message_id=task["message_id"],
         workspace=tmp_path, output=output, check_file="safe.txt",
     ) == prepared
+
+
+
+def test_one_command_wls_cycle_is_verified_and_returns_to_mailbox(
+    tmp_path: Path, wls_task,
+):
+    mailbox, task, _ = wls_task
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "checked.txt").write_text("from controlled fixture", encoding="utf-8")
+    db = tmp_path / "cycle.db"
+    done = runner.invoke(app, [
+        "wls-cycle", task["message_id"], "--mailbox-root", str(mailbox),
+        "--workspace", str(workspace), "--check-file", "checked.txt",
+        "--db", str(db), "--runs-dir", str(tmp_path / "runs"),
+        "--executor", "fake",
+    ])
+    assert done.exit_code == 0, done.output
+    result_paths = list((mailbox / "results").glob("*.json"))
+    assert len(result_paths) == 1
+    result = json.loads(result_paths[0].read_text(encoding="utf-8"))
+    assert result["status"] == "SUCCEEDED"
+    assert result["payload"]["verified_checks"][0]["status"] == "PASS"
+
+
+def test_one_command_wls_cycle_denies_unapproved_model_use(
+    tmp_path: Path, wls_task,
+):
+    mailbox, task, _ = wls_task
+    denied = runner.invoke(app, [
+        "wls-cycle", task["message_id"], "--mailbox-root", str(mailbox),
+        "--workspace", str(tmp_path), "--check-file", "out.txt",
+        "--db", str(tmp_path / "cycle.db"), "--executor", "opencode",
+    ])
+    assert denied.exit_code == 2
+    assert "requires --allow-model-usage" in denied.output
+    assert not (tmp_path / "cycle.db").exists()
