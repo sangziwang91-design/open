@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from agentbridge.domain.enums import TaskState, VerificationStatus
+from agentbridge.domain.enums import AttemptStatus, TaskState, VerificationStatus
 from agentbridge.domain.task import TaskEnvelope
 from agentbridge.persistence.database import Database
 from agentbridge.persistence.repository import AgentRepository
@@ -90,6 +90,8 @@ def prepare_wls_task(
     result_path = (directory / check_file).resolve()
     if directory not in result_path.parents:
         raise ValueError("acceptance file escapes workspace")
+    if executor == "opencode" and result_path.exists():
+        raise ValueError("acceptance file already exists; choose a fresh output to prove work")
     title = str(wls["payload"]["title"])
     # OpenCode's edit/shell permission categories are inseparable, hence
     # explicit allow grants within the pre-existing AgentBridge worker policy.
@@ -175,8 +177,17 @@ def reply_to_wls(
         TaskState.REPAIR_READY, TaskState.ACCEPTANCE_FAILED,
     }:
         raise ValueError("AgentBridge task is not resolved; no reply issued")
+    # A fake subprocess passing file-exists checks is NOT a completed WLS
+    # execution. Bind success to the declared real executor and its actual
+    # finished attempt, not to a verifier that may inspect pre-existing files.
     passed = (
         runtime.state == TaskState.COMPLETED
+        and envelope.target.executor_id == "opencode"
+        and runtime.executor_id == "opencode"
+        and attempt is not None
+        and attempt.executor_id == "opencode"
+        and attempt.status == AttemptStatus.FINISHED
+        and attempt.exit_code == 0
         and bool(checks)
         and all(check.status == VerificationStatus.PASS for check in checks)
     )
@@ -195,8 +206,8 @@ def reply_to_wls(
     }
     if not passed:
         result_payload["error"] = (
-            "AgentBridge has not produced a completed task with independently "
-            "passing acceptance results"
+            "AgentBridge has not produced a completed real OpenCode attempt "
+            "with independently passing acceptance results"
         )
     reply_id = "ab-" + _digest({
         "wls_message_id": message_id, "run_id": runtime.run_id,
