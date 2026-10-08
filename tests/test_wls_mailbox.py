@@ -328,3 +328,56 @@ def test_preexisting_result_after_prepare_is_blocked(tmp_path, wls_task):
     assert result.exit_code == 2
     assert "Acceptance file already exists before worker start" in result.output
     assert not list((mailbox / "results").glob("*.json"))
+
+
+
+def test_wls_cycle_independent_command_checks_real_worker_output(tmp_path, wls_task):
+    mailbox, task, _ = wls_task
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    executable = make_shim(tmp_path)
+    check = "python -c \"from pathlib import Path; assert Path('result.txt').read_text() == 'created by shim'\""
+    args = [
+        "wls-cycle", task["message_id"], "--mailbox-root", str(mailbox),
+        "--workspace", str(workspace), "--check-file", "result.txt",
+        "--verify-command", check, "--db", str(tmp_path / "cycle.db"),
+        "--runs-dir", str(tmp_path / "runs"), "--executor", "opencode",
+        "--allow-model-usage", "--opencode-executable", str(executable),
+    ]
+    first = runner.invoke(app, args)
+    assert first.exit_code == 0, first.output
+    reply = json.loads(next((mailbox / "results").glob("*.json")).read_text())
+    assert reply["status"] == "SUCCEEDED"
+    assert {c["check_id"] for c in reply["payload"]["verified_checks"]} == {
+        "WLS_FILE_1", "WLS_COMMAND_1",
+    }
+    assert {c["status"] for c in reply["payload"]["verified_checks"]} == {"PASS"}
+    second = runner.invoke(app, args)
+    assert second.exit_code == 0, second.output
+    assert len(list((mailbox / "results").glob("*.json"))) == 1
+    changed = list(args)
+    changed[changed.index(check)] = 'python -c "print(42)"'
+    rejected = runner.invoke(app, changed)
+    assert rejected.exit_code != 0
+    assert len(list((mailbox / "results").glob("*.json"))) == 1
+
+
+def test_wls_cycle_failed_independent_command_never_claims_success(tmp_path, wls_task):
+    mailbox, task, _ = wls_task
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    executable = make_shim(tmp_path)
+    result = runner.invoke(app, [
+        "wls-cycle", task["message_id"], "--mailbox-root", str(mailbox),
+        "--workspace", str(workspace), "--check-file", "result.txt",
+        "--verify-command", 'python -c "import sys; sys.exit(7)"',
+        "--db", str(tmp_path / "cycle.db"), "--runs-dir", str(tmp_path / "runs"),
+        "--executor", "opencode", "--allow-model-usage",
+        "--opencode-executable", str(executable),
+    ])
+    assert result.exit_code != 0
+    reply = json.loads(next((mailbox / "results").glob("*.json")).read_text())
+    assert reply["status"] == "FAILED"
+    by_id = {c["check_id"]: c["status"] for c in reply["payload"]["verified_checks"]}
+    assert by_id["WLS_FILE_1"] == "PASS"
+    assert by_id["WLS_COMMAND_1"] == "FAIL"
