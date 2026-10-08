@@ -73,6 +73,7 @@ def _task_id(wls: dict[str, Any]) -> str:
 def prepare_wls_task(
     *, mailbox_root: Path, message_id: str, workspace: Path,
     output: Path, check_file: str, executor: str = "fake",
+    verify_command: str | None = None,
 ) -> dict[str, str]:
     """Prepare an AgentBridge task without executing it or relaxing WLS controls."""
     wls = read_wls_task(mailbox_root, message_id)
@@ -96,10 +97,20 @@ def prepare_wls_task(
         and not output.expanduser().resolve().is_file()
     ):
         raise ValueError("acceptance file already exists; choose a fresh output to prove work")
+    if verify_command is not None and (not verify_command.strip() or len(verify_command) > 500):
+        raise ValueError("verification command must be nonempty and bounded")
     title = str(wls["payload"]["title"])
     # OpenCode's edit/shell permission categories are inseparable, hence
     # explicit allow grants within the pre-existing AgentBridge worker policy.
     access = "allow" if executor == "opencode" else "deny"
+    acceptance: list[dict[str, Any]] = [
+        {"id": "WLS_FILE_1", "type": "fileexists", "path": check_file}
+    ]
+    if verify_command is not None:
+        acceptance.append({
+            "id": "WLS_COMMAND_1", "type": "command",
+            "command": verify_command, "expected_exit_code": 0,
+        })
     task = TaskEnvelope.model_validate({
         "schema_version": "1.0",
         "task_id": _task_id(wls),
@@ -120,9 +131,7 @@ def prepare_wls_task(
             "Candidate only; do not merge, push, deploy, or read credentials.",
             "WLS controls final acceptance and lease completion.",
         ],
-        "acceptance": [{
-            "id": "WLS_FILE_1", "type": "fileexists", "path": check_file,
-        }],
+        "acceptance": acceptance,
         "permissions": {
             "file_write": {"mode": access},
             "delete": {"mode": access},
@@ -192,7 +201,9 @@ def reply_to_wls(
         and attempt.executor_id == "opencode"
         and attempt.status == AttemptStatus.FINISHED
         and attempt.exit_code == 0
-        and bool(checks)
+        and len(checks) == len(envelope.acceptance)
+        and {check.check_id for check in checks}
+        == {item.id for item in envelope.acceptance}
         and all(check.status == VerificationStatus.PASS for check in checks)
     )
     status = "SUCCEEDED" if passed else "FAILED"
