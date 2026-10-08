@@ -137,7 +137,15 @@ def prepare_wls_task(
     out.parent.mkdir(parents=True, exist_ok=True)
     encoded = json.dumps(task.model_dump(mode="json"), ensure_ascii=False, indent=2) + "\n"
     if out.exists():
-        if out.read_text(encoding="utf-8") != encoded:
+        saved = json.loads(out.read_text(encoding="utf-8"))
+        incoming = task.model_dump(mode="json")
+        # Source.created_at is the only nondeterministic default. A retry
+        # must be idempotent while all authority, scope and permissions stay
+        # byte-for-byte equivalent after canonical JSON normalization.
+        if isinstance(saved, dict):
+            saved.get("source", {}).pop("created_at", None)
+        incoming["source"].pop("created_at", None)
+        if saved != incoming:
             raise FileExistsError("existing task envelope has different content")
     else:
         stage = out.with_suffix(out.suffix + ".tmp")
