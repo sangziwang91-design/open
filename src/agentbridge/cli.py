@@ -100,6 +100,49 @@ def wls_reply(
     typer.echo(yaml.safe_dump(result, sort_keys=False))
 
 
+@app.command("wls-cycle")
+def wls_cycle(
+    message_id: Annotated[str, typer.Argument(help="Existing leased WLS task ID")],
+    mailbox_root: Annotated[Path, typer.Option("--mailbox-root")],
+    workspace: Annotated[Path, typer.Option("--workspace")],
+    check_file: Annotated[str, typer.Option("--check-file")],
+    db: Annotated[Path, typer.Option("--db")] = Path("agentbridge.db"),
+    runs_dir: Annotated[Path, typer.Option("--runs-dir")] = Path("data/runs"),
+    executor: Annotated[ExecutorName, typer.Option("--executor")] = ExecutorName.FAKE,
+    opencode_executable: Annotated[
+        str, typer.Option("--opencode-executable")
+    ] = "opencode",
+    allow_model_usage: Annotated[
+        bool, typer.Option("--allow-model-usage")
+    ] = False,
+) -> None:
+    """Reuse submit/run/verify/reply in one bounded call; no second engine.
+
+    OpenCode requires a separate explicit owner decision because its backend
+    can use paid tokens and its worker policy allows workspace side effects.
+    """
+    if executor == ExecutorName.OPENCODE and not allow_model_usage:
+        typer.echo("OpenCode execution requires --allow-model-usage", err=True)
+        raise typer.Exit(2)
+    task_file = db.expanduser().resolve().parent / f"wls-{message_id}.json"
+    created = prepare_wls_task(
+        mailbox_root=mailbox_root,
+        message_id=message_id,
+        workspace=workspace,
+        output=task_file,
+        check_file=check_file,
+        executor=executor.value,
+    )
+    # These are the existing verified CLI paths, not a new worker/retry loop.
+    submit(task_file, db=db)
+    run(
+        created["task_id"], executor=executor, db=db,
+        runs_dir=runs_dir, opencode_executable=opencode_executable,
+    )
+    verify(created["task_id"], db=db, runs_dir=runs_dir)
+    wls_reply(message_id, mailbox_root=mailbox_root, db=db)
+
+
 @app.command("init")
 def initialize(
     db: Annotated[Path, typer.Option("--db", help="SQLite database path.")] = Path(
