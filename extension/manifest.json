@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "AgentBridge Chat Loop",
+  "description": "Connect an explicitly armed ChatGPT web conversation to a local AgentBridge gateway.",
+  "version": "0.4.0",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://chatgpt.com/*"],
+      "js": ["bridge-core.js", "chatgpt-adapter.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options.html",
+  "web_accessible_resources": [
+    {
+      "resources": ["brain-prompt.txt"],
+      "matches": ["https://chatgpt.com/*"]
+    }
+  ]
+}

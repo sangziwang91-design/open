@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -65,10 +66,19 @@ print('{{"type":"text","text":"shim completed"}}')
 
 
 def make_shim(tmp_path: Path) -> Path:
-    path = tmp_path / "opencode-shim"
-    path.write_text(SHIM, encoding="utf-8")
-    path.chmod(0o755)
-    return path
+    if os.name == "nt":
+        script = tmp_path / "opencode-shim.py"
+        script.write_text(SHIM, encoding="utf-8")
+        launcher = tmp_path / "opencode-shim.cmd"
+        launcher.write_text(
+            f'@echo off\r\n"{sys.executable}" "{script}" %*\r\n',
+            encoding="utf-8",
+        )
+        return launcher
+    launcher = tmp_path / "opencode-shim"
+    launcher.write_text(SHIM, encoding="utf-8")
+    launcher.chmod(0o755)
+    return launcher
 
 
 def authorize_opencode(task, workspace: Path) -> None:
@@ -88,9 +98,7 @@ def test_missing_opencode_is_explicit(monkeypatch, tmp_path: Path) -> None:
         OpenCodeExecutor().prepare(sample_task(), tmp_path)
 
 
-def test_probe_rejects_unsupported_version(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_probe_rejects_unsupported_version(monkeypatch, tmp_path: Path) -> None:
     shim = make_shim(tmp_path)
     monkeypatch.setenv("OPENCODE_SHIM_VERSION", "1.0.99")
     with pytest.raises(ExecutorUnavailableError, match="too old"):
@@ -104,9 +112,7 @@ def test_narrow_scope_is_rejected_before_launch(tmp_path: Path) -> None:
         OpenCodeExecutor().prepare(task, tmp_path / "run")
 
 
-def test_invalid_inline_config_is_rejected(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_invalid_inline_config_is_rejected(monkeypatch, tmp_path: Path) -> None:
     shim = make_shim(tmp_path)
     task = sample_task()
     authorize_opencode(task, tmp_path)
@@ -193,9 +199,9 @@ def test_real_subprocess_contract_and_policy_injection(
         '{"type":"text","text":"shim completed"}'
     )
     assert (tmp_path / "result.txt").read_text(encoding="utf-8") == "created by shim"
-    assert "OPENCODE_CONFIG_CONTENT" not in Path(
-        output["command_path"]
-    ).read_text(encoding="utf-8")
+    assert "OPENCODE_CONFIG_CONTENT" not in Path(output["command_path"]).read_text(
+        encoding="utf-8"
+    )
 
 
 def test_timeout_kills_subprocess_group_and_persists_attempt(
