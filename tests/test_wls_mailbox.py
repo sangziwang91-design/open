@@ -183,6 +183,25 @@ def test_one_command_wls_cycle_is_verified_and_returns_to_mailbox(
     result = json.loads(result_paths[0].read_text(encoding="utf-8"))
     assert result["status"] == "SUCCEEDED"
     assert result["payload"]["verified_checks"][0]["status"] == "PASS"
+    # Reentering after a process restart must return the same signed result,
+    # not run the model worker again and double-charge usage.
+    again = runner.invoke(app, [
+        "wls-cycle", task["message_id"], "--mailbox-root", str(mailbox),
+        "--workspace", str(workspace), "--check-file", "result.txt",
+        "--db", str(db), "--runs-dir", str(tmp_path / "runs"),
+        "--executor", "opencode", "--allow-model-usage",
+        "--opencode-executable", str(executable),
+    ])
+    assert again.exit_code == 0, again.output
+    assert len(list((mailbox / "results").glob("*.json"))) == 1
+    from agentbridge.persistence.database import Database
+    from agentbridge.persistence.repository import AgentRepository
+
+    storage = Database(db)
+    storage.initialize()
+    with storage.connect() as conn:
+        state = AgentRepository(conn).get_runtime(_task_id(task))
+    assert state.attempt_count == 1
 
 
 def test_one_command_wls_cycle_denies_unapproved_model_use(
@@ -254,3 +273,58 @@ def test_failing_executor_sends_wls_failure_instead_of_silence(
     reply = json.loads(replies[0].read_text())
     assert reply["status"] == "FAILED"
     assert reply["payload"]["agentbridge_state"] == "RECOVERY_REQUIRED"
+
+
+
+def test_reenter_after_submit_does_not_reinsert_task(tmp_path, wls_task):
+    mailbox, task, _ = wls_task
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    contract = tmp_path / "to-agentbridge.json"
+    db = tmp_path / "bridge.db"
+    prepare = runner.invoke(app, [
+        "wls-prepare", task["message_id"], "--mailbox-root", str(mailbox),
+        "--workspace", str(workspace), "--output", str(contract),
+        "--check-file", "proof.txt", "--executor", "fake",
+    ])
+    assert prepare.exit_code == 0, prepare.output
+    assert runner.invoke(app, [
+        "submit", str(contract), "--db", str(db),
+    ]).exit_code == 0
+    # The canonical CLI uses wls-MESSAGE_ID.json in the DB's parent.
+    saved = db.parent / f"wls-{task['message_id']}.json"
+    saved.write_bytes(contract.read_bytes())
+    result = runner.invoke(app, [
+        "wls-cycle", task["message_id"], "--mailbox-root", str(mailbox),
+        "--workspace", str(workspace), "--check-file", "proof.txt",
+        "--db", str(db), "--runs-dir", str(tmp_path / "runs"),
+        "--executor", "fake",
+    ])
+    # The mock cannot produce a file; the verifier fails and a failed
+    # result is stored for WLS instead of a duplicate-submit exception.
+    assert result.exit_code != 0
+    messages = list((mailbox / "results").glob("*.json"))
+    assert len(messages) == 1
+    assert json.loads(messages[0].read_text())["status"] == "FAILED"
+
+
+def test_preexisting_result_after_prepare_is_blocked(tmp_path, wls_task):
+    mailbox, task, _ = wls_task
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    contract = tmp_path / f"wls-{task['message_id']}.json"
+    prepare_wls_task(
+        mailbox_root=mailbox, message_id=task["message_id"],
+        workspace=workspace, output=contract, check_file="proof.txt",
+        executor="opencode",
+    )
+    (workspace / "proof.txt").write_text("not a worker result", encoding="utf-8")
+    result = runner.invoke(app, [
+        "wls-cycle", task["message_id"], "--mailbox-root", str(mailbox),
+        "--workspace", str(workspace), "--check-file", "proof.txt",
+        "--db", str(tmp_path / "bridge.db"), "--runs-dir", str(tmp_path / "runs"),
+        "--executor", "opencode", "--allow-model-usage",
+    ])
+    assert result.exit_code == 2
+    assert "Acceptance file already exists before worker start" in result.output
+    assert not list((mailbox / "results").glob("*.json"))
