@@ -90,8 +90,10 @@ def verify(
     file_sha = hashlib.sha256(actual.encode("utf-8")).hexdigest() if actual else None
 
     job = _matching_finished_job(database.resolve(), nonce)
-    result = dict(job.get("result") or {}) if job else {}
-    checks = result.get("checks") if isinstance(result.get("checks"), list) else []
+    raw_result = job.get("result") if job else None
+    result = raw_result if isinstance(raw_result, dict) else {}
+    raw_checks = result.get("checks")
+    checks = raw_checks if isinstance(raw_checks, list) else []
     checks_pass = bool(checks) and all(
         isinstance(item, dict) and item.get("status") == "PASS" for item in checks
     )
