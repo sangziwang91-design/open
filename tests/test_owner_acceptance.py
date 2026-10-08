@@ -66,8 +66,10 @@ def test_owner_acceptance_prepare_and_verify(tmp_path: Path) -> None:
     )
 
     assert receipt["passed"] is True
-    assert receipt["bridge"]["matched"] is True
-    assert receipt["bridge"]["all_checks_pass"] is True
+    bridge = receipt["bridge"]
+    assert isinstance(bridge, dict)
+    assert bridge["matched"] is True
+    assert bridge["all_checks_pass"] is True
     assert receipt["workspace_name"] == "workspace"
     serialized = json.dumps(receipt)
     assert str(workspace.resolve()) not in serialized
