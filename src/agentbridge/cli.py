@@ -135,12 +135,17 @@ def wls_cycle(
     )
     # These are the existing verified CLI paths, not a new worker/retry loop.
     submit(task_file, db=db)
-    run(
-        created["task_id"], executor=executor, db=db,
-        runs_dir=runs_dir, opencode_executable=opencode_executable,
-    )
-    verify(created["task_id"], db=db, runs_dir=runs_dir)
-    wls_reply(message_id, mailbox_root=mailbox_root, db=db)
+    try:
+        run(
+            created["task_id"], executor=executor, db=db,
+            runs_dir=runs_dir, opencode_executable=opencode_executable,
+        )
+        verify(created["task_id"], db=db, runs_dir=runs_dir)
+    finally:
+        # A failed/blocked attempt must reach WLS as FAILED rather than
+        # leaving the graph node hanging until lease expiry. If the run is
+        # truly interrupted, reply_to_wls refuses to invent a terminal state.
+        wls_reply(message_id, mailbox_root=mailbox_root, db=db)
 
 
 @app.command("init")
