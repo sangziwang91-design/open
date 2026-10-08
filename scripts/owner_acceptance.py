@@ -8,7 +8,6 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-
 RESULT_FILE = "agentbridge-owner-acceptance-result.txt"
 
 
