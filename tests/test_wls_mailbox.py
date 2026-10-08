@@ -15,6 +15,7 @@ from agentbridge.wls_mailbox import (
     read_wls_task,
     reply_to_wls,
 )
+from tests.test_opencode_executor import make_shim
 
 runner = CliRunner()
 
@@ -97,7 +98,8 @@ def test_real_cli_wls_task_roundtrip_with_checked_acceptance(
     replies = list((mailbox / "results").glob("*.json"))
     assert len(replies) == 1
     result = json.loads(replies[0].read_text(encoding="utf-8"))
-    assert result["status"] == "SUCCEEDED"
+    # Declared fake workers are never allowed to claim real WLS execution.
+    assert result["status"] == "FAILED"
     assert result["in_reply_to"] == task["message_id"]
     assert result["lease_id"] == task["lease_id"]
     assert result["payload"]["lease_fencing_token"] == task["payload"]["lease_fencing_token"]
@@ -105,7 +107,7 @@ def test_real_cli_wls_task_roundtrip_with_checked_acceptance(
     assert result["payload_digest"] == _digest(result["payload"])
     assert result["recipient"] == "LivingSystem.AgenticHarness"
     # Result serialization is replay-safe; same run won't invent another reply.
-    assert reply_to_wls(mailbox_root=mailbox, message_id="msg-A1", db_path=db)["status"] == "SUCCEEDED"
+    assert reply_to_wls(mailbox_root=mailbox, message_id="msg-A1", db_path=db)["status"] == "FAILED"
     assert len(list((mailbox / "results").glob("*.json"))) == 1
 
 
@@ -166,13 +168,14 @@ def test_one_command_wls_cycle_is_verified_and_returns_to_mailbox(
     mailbox, task, _ = wls_task
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    (workspace / "checked.txt").write_text("from controlled fixture", encoding="utf-8")
+    executable = make_shim(tmp_path)
     db = tmp_path / "cycle.db"
     done = runner.invoke(app, [
         "wls-cycle", task["message_id"], "--mailbox-root", str(mailbox),
-        "--workspace", str(workspace), "--check-file", "checked.txt",
+        "--workspace", str(workspace), "--check-file", "result.txt",
         "--db", str(db), "--runs-dir", str(tmp_path / "runs"),
-        "--executor", "fake",
+        "--executor", "opencode", "--allow-model-usage",
+        "--opencode-executable", str(executable),
     ])
     assert done.exit_code == 0, done.output
     result_paths = list((mailbox / "results").glob("*.json"))
@@ -194,3 +197,60 @@ def test_one_command_wls_cycle_denies_unapproved_model_use(
     assert denied.exit_code == 2
     assert "requires --allow-model-usage" in denied.output
     assert not (tmp_path / "cycle.db").exists()
+
+
+
+def test_fake_worker_cannot_complete_wls_even_with_preexisting_file(
+    tmp_path: Path, wls_task,
+):
+    mailbox, task, _ = wls_task
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "already-there.txt").write_text("not a worker result", encoding="utf-8")
+    run = runner.invoke(app, [
+        "wls-cycle", task["message_id"], "--mailbox-root", str(mailbox),
+        "--workspace", str(workspace), "--check-file", "already-there.txt",
+        "--db", str(tmp_path / "bridge.db"), "--runs-dir", str(tmp_path / "runs"),
+        "--executor", "fake",
+    ])
+    assert run.exit_code == 0, run.output
+    reply = json.loads(next((mailbox / "results").glob("*.json")).read_text())
+    assert reply["status"] == "FAILED"
+    assert reply["payload"]["agentbridge_state"] == "COMPLETED"
+
+
+def test_opencode_rejects_preexisting_file_before_dispatch(tmp_path: Path, wls_task):
+    mailbox, task, _ = wls_task
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "output.txt").write_text("old", encoding="utf-8")
+    with pytest.raises(ValueError, match="already exists"):
+        prepare_wls_task(
+            mailbox_root=mailbox, message_id=task["message_id"],
+            workspace=workspace, output=tmp_path / "request.json",
+            check_file="output.txt", executor="opencode",
+        )
+    assert not (tmp_path / "request.json").exists()
+
+
+def test_failing_executor_sends_wls_failure_instead_of_silence(
+    tmp_path: Path, wls_task, monkeypatch,
+):
+    mailbox, task, _ = wls_task
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    executable = make_shim(tmp_path)
+    monkeypatch.setenv("OPENCODE_SHIM_MODE", "fail")
+    run = runner.invoke(app, [
+        "wls-cycle", task["message_id"], "--mailbox-root", str(mailbox),
+        "--workspace", str(workspace), "--check-file", "result.txt",
+        "--db", str(tmp_path / "bridge.db"), "--runs-dir", str(tmp_path / "runs"),
+        "--executor", "opencode", "--allow-model-usage",
+        "--opencode-executable", str(executable),
+    ])
+    assert run.exit_code != 0
+    replies = list((mailbox / "results").glob("*.json"))
+    assert len(replies) == 1
+    reply = json.loads(replies[0].read_text())
+    assert reply["status"] == "FAILED"
+    assert reply["payload"]["agentbridge_state"] == "RECOVERY_REQUIRED"
