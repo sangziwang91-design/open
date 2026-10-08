@@ -32,7 +32,13 @@ def _safe_id(value: str) -> str:
 def read_wls_task(root: Path, message_id: str) -> dict[str, Any]:
     """Reject a damaged, misdirected, or substituted WLS task envelope."""
     safe = _safe_id(message_id)
-    path = root.resolve() / "tasks" / f"{safe}.json"
+    canonical_root = root.expanduser().resolve()
+    directory = canonical_root / "tasks"
+    # Reject symlinked mailbox ancestors: checking only the final JSON path
+    # permits a swapped tasks/ directory to read unrelated host files.
+    if directory.is_symlink() or directory.resolve() != directory:
+        raise ValueError("WLS task mailbox directory is symlinked")
+    path = directory / f"{safe}.json"
     if path.is_symlink() or not path.is_file() or path.stat().st_size > 128_000:
         raise ValueError("WLS task file is missing, symlinked, or oversized")
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -240,9 +246,14 @@ def reply_to_wls(
         "payload": result_payload,
         "payload_digest": _digest(result_payload),
     }
-    directory = mailbox_root.resolve() / "results"
+    canonical_root = mailbox_root.expanduser().resolve()
+    directory = canonical_root / "results"
+    if directory.is_symlink() or directory.resolve() != directory:
+        raise ValueError("WLS result mailbox directory is symlinked")
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / f"{reply_id}.json"
+    if target.is_symlink():
+        raise ValueError("WLS result envelope cannot be a symlink")
     serialized = json.dumps(reply, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     if target.exists():
         if json.loads(target.read_text(encoding="utf-8")) != reply:
