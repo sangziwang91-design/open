@@ -37,7 +37,7 @@ def read_wls_task(root: Path, message_id: str) -> dict[str, Any]:
         raise ValueError("WLS task file is missing, symlinked, or oversized")
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
-        raise ValueError("WLS envelope must be an object")
+        raise TypeError("WLS envelope must be an object")
     required = {
         "protocol_version", "message_id", "graph_id", "node_id", "lease_id",
         "sender", "recipient", "payload", "payload_digest",
