@@ -85,9 +85,9 @@ def verify(
     nonce = str(state["nonce"])
     expected = f"AGENTBRIDGE_OWNER_ACCEPTANCE={nonce}"
     result_path = workspace.resolve() / str(state["result_file"])
-    actual = result_path.read_text(encoding="utf-8").strip() if result_path.is_file() else ""
-    file_ok = actual == expected
-    file_sha = hashlib.sha256(actual.encode("utf-8")).hexdigest() if actual else None
+    actual = result_path.read_text(encoding="utf-8") if result_path.is_file() else ""
+    file_ok = actual in {expected, expected + "\\n"}
+    file_sha = hashlib.sha256(actual.rstrip("\\n").encode("utf-8")).hexdigest() if file_ok else None
 
     job = _matching_finished_job(database.resolve(), nonce)
     raw_result = job.get("result") if job else None
